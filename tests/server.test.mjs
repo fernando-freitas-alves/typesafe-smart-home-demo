@@ -26,3 +26,23 @@ test('local server serves only public assets, protects its API, and never return
   assert.equal(good.status, 200); assert.equal(calls, 1);
   assert.equal((await good.json()).command, 'test');
 });
+
+test('live routes preserve origin/file boundaries and apply only the server-held preview ID', async t => {
+  const operations = [];
+  const server = createDemoServer({ settings: () => ({ haToken: 'PRIVATE_HA_TOKEN', haUrl: 'http://private-home', typesafeKey: 'PRIVATE_MODEL_KEY' }), live: {
+    snapshot: async () => ({ devices: [], rooms: [] }),
+    preview: async input => { operations.push(['preview', input.command]); return { planId: 'server-plan', actions: [] }; },
+    apply: async planId => { operations.push(['apply', planId]); return { outcome: 'Observed' }; },
+  } });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  for (const path of ['/live', '/live.js', '/live.css', '/live-home.mjs', '/trace-ui.js']) assert.equal((await fetch(base + path)).status, 200);
+  for (const path of ['/ha-client.mjs', '/live-engine.mjs', '/.local/ha-inventory.json', '/.env']) assert.equal((await fetch(base + path)).status, 404);
+  const metadata = await (await fetch(base + '/api/config')).text(); assert.ok(!metadata.includes('PRIVATE_')); assert.ok(!metadata.includes('private-home'));
+  assert.equal((await fetch(base + '/api/live/home', { headers: { Origin: 'https://unrelated.example' } })).status, 403);
+  assert.equal((await fetch(base + '/api/live/apply', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://unrelated.example' }, body: '{"planId":"server-plan"}' })).status, 403);
+  assert.equal(operations.length, 0);
+  const response = await fetch(base + '/api/live/apply', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify({ planId: 'server-plan', services: [{ domain: 'lock', service: 'unlock' }] }) });
+  assert.equal(response.status, 200); assert.deepEqual(operations, [['apply', 'server-plan']]);
+});

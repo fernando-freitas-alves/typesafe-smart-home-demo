@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff"><title>TypeSafe · Live Home</title>
+  <link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/live.css">
+  <script type="module" src="/live.js"></script>
+</head>
+<body class="live-home">
+  <a class="skip-link" href="#smart-home">Skip to your home</a>
+  <main class="app">
+    <section class="command-bar" aria-label="Live home assistant">
+      <div class="live-title"><h1>TypeSafe <span>Live Home</span></h1><a href="/">Mock demo ↗</a></div>
+      <form id="command-form">
+        <label class="sr-only" for="command">Command or question</label>
+        <input id="command" placeholder="Ask about your home or describe a change…" autocomplete="off" maxlength="1500" required>
+        <label class="sr-only" for="room-filter">Room scope</label><select id="room-filter"><option value="">All rooms</option></select>
+        <button class="send" id="send" type="submit" disabled>Preview</button>
+      </form>
+      <div class="command-options"><span>Real devices · review changes before applying</span><label><input type="checkbox" id="context"> Include current states</label></div>
+      <div id="examples" class="examples" aria-label="Example requests"></div>
+      <div id="error" role="alert" hidden></div>
+    </section>
+    <div class="workspace">
+      <section id="smart-home" class="home-panel" aria-labelledby="home-heading">
+        <header class="panel-header live-home-header">
+          <div class="trace-heading-row"><h2 id="home-heading">Your Home</h2><button class="quiet" id="refresh">Refresh</button></div>
+          <div class="device-filters"><label class="sr-only" for="search">Find a device</label><input id="search" type="search" placeholder="Find a device…">
+            <label class="sr-only" for="kind-filter">Device type</label><select id="kind-filter"><option value="controls">Controls</option><option value="all">All devices</option><option value="light">Lights</option><option value="thermostat">Climate</option><option value="cover">Covers</option><option value="fan">Fans</option><option value="speaker">Media</option><option value="appliance">Switches</option><option value="lock">Locks</option><option value="sensor">Sensors</option></select>
+          </div>
+          <p id="device-count" class="device-count">Discovering rooms and devices…</p>
+        </header>
+        <div id="rooms" class="rooms"><p class="empty-state">Connecting to Home Assistant…</p></div>
+        <footer class="home-footer"><span id="home-status" role="status">Connecting…</span><span id="connection">Checking APIs…</span></footer>
+      </section>
+      <section class="trace-panel" aria-labelledby="trace-heading">
+        <header class="panel-header trace-header"><h2 id="trace-heading">Decision Trace</h2><div id="request-label" class="request-label" hidden></div><div id="timing" class="timing" hidden></div></header>
+        <div id="trace-scroll" class="trace-scroll" tabindex="0" aria-label="Decision trace results"><div id="action-preview" hidden></div><div id="trace"><p class="empty-state">Ask a status question, or preview a change to your home.</p></div><div id="history" class="history"></div></div>
+      </section>
+    </div>
+  </main>
+  <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
+  <dialog id="device-dialog" aria-labelledby="device-title"><header><h2 id="device-title">Device</h2><button id="close-device" class="icon-button" aria-label="Close device details">×</button></header><p id="device-entity" class="mono"></p><p id="device-status"></p><div id="device-controls"></div><details><summary>Live Home Assistant state</summary><pre id="device-json"></pre></details><p class="dialog-note">Controls create a preview. Apply it to change the real device.</p></dialog>
+</body>
+</html>

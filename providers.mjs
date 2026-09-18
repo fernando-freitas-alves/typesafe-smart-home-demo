@@ -11,6 +11,9 @@ export function config() {
     typesafeModel: process.env.TYPESAFE_MODEL || file.TYPESAFE_MODEL || 'jev-latest',
     anthropicKey: process.env.ANTHROPIC_API_KEY || file.ANTHROPIC_API_KEY,
     anthropicModel: process.env.ANTHROPIC_MODEL || file.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
+    haUrl: process.env.HA_URL || file.HA_URL,
+    haToken: process.env.HA_TOKEN || file.HA_TOKEN,
+    haSwitchEntities: (process.env.HA_SWITCH_ENTITIES || file.HA_SWITCH_ENTITIES || '').split(',').map(value => value.trim()).filter(Boolean),
   };
 }
 
@@ -33,10 +36,9 @@ async function postJson(url, headers, body, provider, signal) {
   }
 }
 
-export async function evaluate(command, devices, context, signal) {
+export async function evaluate(command, devices, context, signal, questions = buildQuestions(devices)) {
   const settings = config();
   if (!settings.typesafeKey) throw new Error('Add TYPESAFE_API_KEY to the root .env file, then retry.');
-  const questions = buildQuestions(devices);
   const state = context === 'devices' ? { request: command, devices } : command;
   const started = performance.now();
   const result = await postJson('https://api.typesafe.ai/v1/systemone', { Authorization: `Bearer ${settings.typesafeKey}` }, { model: settings.typesafeModel, state, questions }, 'TypeSafe', signal);

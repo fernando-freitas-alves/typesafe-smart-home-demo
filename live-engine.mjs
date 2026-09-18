@@ -1,0 +1,181 @@
+import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
+import * as providers from './providers.mjs';
+import { buildQuestions } from './questions.mjs';
+import { HomeAssistantClient } from './ha-client.mjs';
+import { buildLiveInventory, liveLabel, deviceFingerprint, validateLiveService, serviceLabel, serviceObserved } from './live-home.mjs';
+
+const choice = (instructions, criteria) => ({ type: 'choice', instructions, criteria });
+const roomTranslation = name => name.replace(/living room/gi, 'sala de estar').replace(/dining room/gi, 'sala de jantar').replace(/bedroom/gi, 'quarto').replace(/office/gi, 'escritório').replace(/kitchen/gi, 'cozinha').replace(/terrace/gi, 'varanda').replace(/laundry/gi, 'lavanderia').replace(/corridor/gi, 'corredor');
+export function buildLiveQuestions(devices) {
+  const questions = buildQuestions(devices);
+  questions.intent.criteria.unsupported_request = 'Scheduling future actions, changing device configuration, firmware, safety settings or automations, or requesting unsupported actions.';
+  questions.device_type.criteria = { ...questions.device_type.criteria, cover: 'Windows, blinds, curtains and shades', sensor: 'Temperature, humidity, battery, presence and other sensor readings' };
+  questions.scope = choice('Does the request identify one named device, every device of a kind in one room, or a whole-house group?', {
+    specific_device: 'One named device, including a light qualified as ambient, accent, mirror, sink, ceiling, or bedside. A room name plus a specific device name is still ONE device. Examples: office ambient light, kitchen sink light, bedroom AC.',
+    area: 'A room-wide GROUP, such as kitchen lights or all fans in the office, with no individual device qualifier. Do not choose this for ambient light, accent light, sink light, or other specifically named fixtures.',
+    whole_house: 'Every matching device across the home, or an unqualified plural group such as all lights or which lights are on.',
+  });
+  questions.room = choice('Which room is the user referring to? Match English or Portuguese room names.', { ...Object.fromEntries(devices.map(d => [d.room, `${d.roomName}; ${roomTranslation(d.roomName)}`])), none_of_these: 'The room is absent or unspecified; do not substitute another room' });
+  questions.device = choice('Which specific device should receive the request?', { ...Object.fromEntries(devices.map(d => [d.id, `${d.name}; ${d.kind}; room: ${d.roomName}${d.aliases?.length ? '; aliases: ' + d.aliases.join(', ') : ''}`])), none_of_these: 'No single device matches the requested name and room; never guess an absent device' });
+  questions.light_action.criteria.dim = 'Set a specific brightness percentage or dim the light';
+  questions.thermostat_action.criteria = { ...questions.thermostat_action.criteria, set_temperature: 'Set a numeric target temperature without changing HVAC mode' };
+  questions.cover_action = choice('What should happen to the covers?', { open_cover: 'Open windows, curtains, blinds or shades', close_cover: 'Close windows, curtains, blinds or shades', stop_cover: 'Stop cover movement', set_cover_position: 'Set a specific open percentage' });
+  questions.speaker_action.criteria = { turn_on: 'Turn on the media device', turn_off: 'Turn off the media device', media_play: 'Resume existing playback, without choosing new music', media_pause: 'Pause current playback' };
+  questions.sensor_type = choice('Which sensor reading is requested?', { temperature: 'Temperature', humidity: 'Humidity', battery: 'Battery level', illuminance: 'Light level', power: 'Power consumption', energy: 'Energy consumption', occupancy: 'Presence or motion', opening: 'Door or window contact', other: 'Other sensor reading or all readings' });
+  return questions;
+}
+function numberIn(command, percentage = false) {
+  const match = command.match(percentage ? /(-?\d+(?:[.,]\d+)?)\s*%/ : /(-?\d+(?:[.,]\d+)?)\s*(?:°\s*[cf]?|degrees?|graus|celsius|fahrenheit)?/i);
+  return match ? Number(match[1].replace(',', '.')) : null;
+}
+function targetTemperature(command, device) {
+  let value = numberIn(command);
+  if (value === null) throw new Error('Include a numeric target temperature.');
+  if (/°\s*f\b|fahrenheit/i.test(command) && device.temperatureUnit === '°C') value = (value - 32) * 5 / 9;
+  if (/°\s*c\b|celsius/i.test(command) && device.temperatureUnit === '°F') value = value * 9 / 5 + 32;
+  const step = device.attributes.target_temp_step || 0.5;
+  return Math.round(value / step) * step;
+}
+export function planLiveDecision(stage, devices) {
+  const a = stage.answers; const intent = a.intent.choice; const used = ['intent'];
+  if (intent === 'unsupported_request') throw new Error('This page supports immediate home controls and state questions. Schedules, configuration changes, and automations are not supported.');
+  if (intent === 'information_request') return { intent, used, targets: [], services: [] };
+  used.push('compound');
+  if (a.compound.noul >= 0.5) return { intent: 'compound', used, targets: [], services: [] };
+  used.push('scope', 'device_type');
+  const kind = a.device_type.choice; const scope = a.scope.choice;
+  let targets = devices.filter(d => d.kind === kind);
+  // HA exposes room temperature on climate entities as well as standalone sensors.
+  if (intent === 'smarthome_query' && kind === 'sensor' && a.sensor_type.choice === 'temperature') {
+    used.push('sensor_type');
+    targets = devices.filter(d => (d.kind === 'sensor' && d.attributes.device_class === 'temperature') || (d.kind === 'thermostat' && Number.isFinite(d.attributes.current_temperature)));
+  }
+  if (scope === 'specific_device') { used.push('device'); targets = targets.filter(d => d.id === a.device.choice); }
+  else if (scope === 'area') { used.push('room'); targets = targets.filter(d => d.room === a.room.choice); }
+  if (kind === 'sensor' && scope !== 'specific_device') {
+    used.push('sensor_type'); const type = a.sensor_type.choice;
+    const classes = { occupancy: ['occupancy', 'motion'], opening: ['opening', 'door', 'window'] }[type] || [type];
+    if (type !== 'other') targets = targets.filter(d => classes.includes(d.attributes.device_class) || (type === 'temperature' && d.kind === 'thermostat'));
+  }
+  if (!targets.length) throw new Error('No matching device in the selected rooms. Name a device shown on this page.');
+  if (intent === 'smarthome_query') return { intent, used, targets, services: [] };
+  const actionKey = `${kind}_action`;
+  if (!a[actionKey]) throw new Error('This device can only be queried.');
+  used.push(actionKey);
+  const action = a[actionKey].choice;
+  const skipped = scope === 'specific_device' ? [] : targets.filter(d => !d.available);
+  if (skipped.length) targets = targets.filter(d => d.available);
+  if (!targets.length) throw new Error('All matching devices are unavailable or unknown. No actions were sent.');
+  // Do not actuate a group and all of its members twice in a broad request.
+  const ids = new Set(targets.map(d => d.entity_id));
+  targets = targets.filter(d => !Array.isArray(d.attributes.entity_id) || !d.attributes.entity_id.length || !d.attributes.entity_id.every(id => ids.has(id)));
+  const services = [];
+  for (const device of targets) {
+    const data = { entity_id: device.entity_id }; let service = action;
+    if (kind === 'thermostat') {
+      if (action === 'set_temperature') {
+        service = action; data.temperature = targetTemperature(stage.command, device);
+      } else { service = 'set_hvac_mode'; data.hvac_mode = { ac_on: 'cool', heat_on: 'heat', turn_off: 'off' }[action]; }
+    }
+    if (kind === 'cover' && action === 'set_cover_position') { data.position = numberIn(stage.command, true); if (data.position === null) throw new Error('Include a cover position such as 50%.'); }
+    if (kind === 'light' && action === 'dim') {
+      service = 'turn_on'; data.brightness_pct = numberIn(stage.command, true);
+      if (data.brightness_pct === null) {
+        if (!Number.isFinite(device.attributes.brightness)) throw new Error(`Specify a brightness percentage for ${device.name}.`);
+        data.brightness_pct = Math.max(1, Math.round(device.attributes.brightness / 255 * 50));
+      }
+    }
+    const call = { domain: device.domain, service, data };
+    validateLiveService(call, devices); services.push(call);
+    if (kind === 'thermostat' && ['ac_on', 'heat_on'].includes(action) && /\d\s*(?:°|degrees?|graus)/i.test(stage.command)) {
+      const temperature = { domain: device.domain, service: 'set_temperature', data: { entity_id: device.entity_id, temperature: targetTemperature(stage.command, device) } };
+      validateLiveService(temperature, devices); services.push(temperature);
+    }
+  }
+  return { intent, used, targets, services, skipped };
+}
+
+export class LiveHome {
+  constructor({ client, dependencies = providers, settings = providers.config, settleMs = 1000, now = Date.now } = {}) {
+    this.client = client || new HomeAssistantClient({ settings }); this.dependencies = dependencies; this.settings = settings; this.settleMs = settleMs; this.now = now;
+    this.pending = new Map(); this.applying = false;
+  }
+  async snapshot(signal) { return buildLiveInventory(await this.client.inventory(signal), this.settings()); }
+  async preview(input, signal) {
+    const { command, room = '', context = 'none', manual } = input;
+    if (typeof command !== 'string' || !command.trim() || command.length > 1500) throw new Error('Enter a request between 1 and 1,500 characters.');
+    if (!['none', 'devices'].includes(context)) throw new Error('Invalid device context.');
+    const started = performance.now(); const snapshot = await this.snapshot(signal);
+    if (room && !snapshot.rooms.some(r => r.id === room)) throw new Error('The selected room is no longer available. Refresh the home.');
+    const devices = room ? snapshot.devices.filter(d => d.room === room) : snapshot.devices;
+    let plans, stages = [];
+    if (manual) {
+      validateLiveService(manual, devices);
+      plans = [{ intent: 'smarthome_command', targets: devices.filter(d => d.entity_id === manual.data.entity_id), services: [structuredClone(manual)] }];
+    } else {
+      const questions = buildLiveQuestions(devices);
+      const evaluate = part => this.dependencies.evaluate(part, devices, context, signal, questions);
+      const initial = await evaluate(command.trim());
+      const first = planLiveDecision(initial, devices);
+      stages.push({ ...initial, used: first.used }); plans = [first];
+      if (first.intent === 'information_request') stages.push(await this.dependencies.answerQuestion(command, signal));
+      else if (first.intent === 'compound') {
+        const split = await this.dependencies.splitCommand(command, signal); stages.push(split);
+        const time = performance.now(); const evaluated = await Promise.all(split.commands.map(evaluate)); const parallelDurationMs = Math.round(performance.now() - time);
+        plans = evaluated.map(stage => planLiveDecision(stage, devices));
+        if (plans.some(p => !['smarthome_query', 'smarthome_command'].includes(p.intent))) throw new Error('A sub-command needs clarification. Send it separately. No devices were changed.');
+        stages.push(...evaluated.map((stage, i) => ({ ...stage, used: plans[i].used, parallel: true, parallelDurationMs })));
+      }
+    }
+    const services = plans.flatMap(p => p.services); const queried = plans.filter(p => p.intent === 'smarthome_query').flatMap(p => p.targets);
+    if (services.length > 100) throw new Error('This request has more than 100 actions. Split it into smaller requests.');
+    const skipped = plans.flatMap(p => p.skipped || []);
+    if (skipped.length) stages.push({ kind: 'result', provider: 'Home Assistant', text: `Skipped unavailable or unknown devices: ${skipped.map(d => `${d.name} (${d.roomName})`).join(', ')}.` });
+    if (queried.length) stages.push({ kind: 'result', provider: 'Home Assistant', text: queried.map(d => `${d.name} (${d.roomName}): ${liveLabel(d)}.`).join('\n') });
+    const result = { ...snapshot, command, context, stages, calls: [], changed: [], durationMs: Math.round(performance.now() - started), live: true,
+      skipped: skipped.map(d => ({ name: d.name, roomName: d.roomName, entity_id: d.entity_id })),
+      actions: services.map(call => { const device = validateLiveService(call, snapshot.devices); return { ...call, name: device.name, roomName: device.roomName, before: liveLabel(device), label: serviceLabel(call, device) }; }),
+      outcome: services.length ? `${services.length} ${services.length === 1 ? 'action' : 'actions'} ready. Review the targets, then apply.` : 'Response ready. No devices changed.' };
+    if (services.length) {
+      for (const [id, plan] of this.pending) if (plan.expires <= this.now()) this.pending.delete(id);
+      if (this.pending.size >= 100) this.pending.delete(this.pending.keys().next().value);
+      result.planId = randomUUID(); result.expiresAt = new Date(this.now() + 120000).toISOString();
+      this.pending.set(result.planId, { services, result: structuredClone(result), expires: this.now() + 120000,
+        fingerprints: Object.fromEntries(services.map(call => { const d = snapshot.devices.find(d => d.entity_id === call.data.entity_id); return [d.entity_id, deviceFingerprint(d)]; })) });
+    }
+    return result;
+  }
+  async apply(planId, signal) {
+    if (this.applying) throw new Error('Another command is running. Wait for its result.');
+    const plan = this.pending.get(planId);
+    if (!plan || plan.expires <= this.now()) { this.pending.delete(planId); throw new Error('This preview expired or was already applied. Preview the request again.'); }
+    this.applying = true;
+    try {
+      const current = await this.snapshot(signal);
+      for (const call of plan.services) {
+        const device = validateLiveService(call, current.devices);
+        if (deviceFingerprint(device) !== plan.fingerprints[device.entity_id]) { this.pending.delete(planId); throw new Error(`${device.name} changed since the preview. Preview again to use its current state.`); }
+      }
+      this.pending.delete(planId); // Consume before the first physical write; never replay it.
+      const calls = []; let failure = '';
+      for (const call of plan.services) {
+        try { await this.client.callService(call.domain, call.service, call.data, signal); calls.push({ ...call, status: 'sent' }); }
+        catch (error) { calls.push({ ...call, status: 'unconfirmed', error: error.message }); failure = error.message; break; }
+      }
+      if (this.settleMs) await delay(this.settleMs);
+      let refreshed;
+      try { refreshed = await this.snapshot(); }
+      catch { refreshed = { ...current, stale: true }; failure ||= 'Commands were sent, but current states could not be refreshed. Check Home Assistant before retrying.'; }
+      for (const call of calls) {
+        const d = refreshed.devices.find(d => d.entity_id === call.data.entity_id);
+        call.observed = !refreshed.stale && serviceObserved(call, d);
+        call.after = refreshed.stale ? 'State unavailable' : d ? liveLabel(d) : 'Device no longer available';
+      }
+      const observed = calls.filter(c => c.observed).length;
+      const outcome = failure ? `Stopped after ${calls.length} of ${plan.services.length} actions. ${failure}` : observed === calls.length ? `${observed} ${observed === 1 ? 'action observed' : 'actions observed'} in Home Assistant.` : `Sent ${calls.length} actions; ${observed} observed so far. Refresh to check remaining devices.`;
+      return { ...plan.result, ...refreshed, planId: null, actions: [], calls, changed: calls.filter(c => c.observed).map(c => c.data.entity_id), outcome, error: failure || null,
+        stages: [...plan.result.stages, { kind: 'result', provider: 'Home Assistant', text: [outcome, ...calls.map(c => `${c.observed ? 'Observed' : 'Not confirmed'}: ${c.data.entity_id} → ${c.after}`)].join('\n') }] };
+    } finally { this.applying = false; }
+  }
+}

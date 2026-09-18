@@ -26,6 +26,18 @@ Open [localhost:5188](http://localhost:5188). No build step is needed. To choose
 
 The server reads `TYPESAFE_API_KEY` from the root `.env`. It rereads configuration for each request, so adding `ANTHROPIC_API_KEY` activates Claude Haiku without restarting. The optional variables and model defaults are in [`.env.example`](.env.example). Existing environment variables take precedence over the file. Keep `.env` local; it is excluded from Git. Requests send command text, and optionally the simulated device states, to TypeSafe. With an Anthropic key, splitting and general answers also send the command text to Anthropic. These APIs may incur usage charges. Keys remain on the local server and are never sent to the browser.
 
+## Connect your real home
+
+1. Add `HA_URL` and `HA_TOKEN` to your local `.env` (see [the example](.env.example)).
+2. Open [Live Home](http://localhost:5188/live). Rooms and devices come from HA; states refresh every 10 seconds.
+3. Ask a question or **Preview** a command. Review the named targets, then **Apply** to change real devices.
+
+**Supported:** lights, fans, climate modes/temperatures, covers, media controls, and selected sensors. Hidden, disabled, and maintenance entities are filtered out. Unavailable devices cannot be controlled. Locks are read-only; switches require an explicit `HA_SWITCH_ENTITIES` allowlist. Standard HA service calls preserve existing HA automation and lighting-override behavior.
+
+**Before applying:** previews expire after 2 minutes and are rejected if target states changed. Actions run once, stop on failure, and report observed states; physical commands are never automatically retried. A failed batch may have partially executed.
+
+**Privacy:** HA credentials stay server-side; inventory is discovered at runtime, not stored in source. TypeSafe receives the request plus room/device names; the optional context checkbox also sends current states. Manual controls work without model calls. This server binds to localhost and is not a hosted public dashboard.
+
 ## Try it
 
 1. **Send a request:** choose one of the 13 examples or type your own.
@@ -63,11 +75,13 @@ Independent, unofficial recreation based on the full recording and [TypeSafe dem
 ## Check it
 
 ```sh
-npm test           # 18 deterministic tests; no API calls
+npm test           # Deterministic tests; no API calls
 npm run test:live  # All 13 examples; real API calls using .env (may incur charges)
 ```
 
-**Verified:** all 13 examples with live TypeSafe; Claude splitting and general answers; state queries, dimming, unlocking, and missing-device handling. Browser checks covered controls, history, context, reset/undo, mobile scrolling, accessibility, and failure/retry without device changes on failure.
+**Mock demo verified:** all 13 examples with live TypeSafe; Claude splitting and general answers; state queries, dimming, unlocking, and missing-device handling. Browser checks covered controls, history, context, reset/undo, mobile scrolling, accessibility, and failure/retry without device changes on failure.
+
+**Live mode validation:** state queries and command previews were checked against HA. Tests simulate physical writes, including stale previews, partial failures, and replay protection; they do not actuate your home.
 
 ## Find the code
 
@@ -75,8 +89,8 @@ npm run test:live  # All 13 examples; real API calls using .env (may incur charg
 | --- | --- |
 | [home.mjs](home.mjs) | Mock devices and HA adapter |
 | [questions.mjs](questions.mjs) · [engine.mjs](engine.mjs) | Questions, routing, and mock actions |
-| [providers.mjs](providers.mjs) | TypeSafe, Claude, and fallback |
-| [server.mjs](server.mjs) | Localhost API; allowlisted files; keys stay server-side |
+| [providers.mjs](providers.mjs) · [ha-client.mjs](ha-client.mjs) | TypeSafe, Claude, and HA connections |
+| [server.mjs](server.mjs) · [live-engine.mjs](live-engine.mjs) | Localhost API and live command previews |
 | [public/](public/) · [tests/](tests/) | Dependency-free UI and tests |
 
 API details: [TypeSafe HTTP reference](https://docs.typesafe.ai/api).
