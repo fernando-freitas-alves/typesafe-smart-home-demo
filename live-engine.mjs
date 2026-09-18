@@ -117,13 +117,14 @@ export class LiveHome {
     if (typeof command !== 'string' || !command.trim() || command.length > 1500) throw new Error('Enter a request between 1 and 1,500 characters.');
     if (!['none', 'devices'].includes(context)) throw new Error('Invalid device context.');
     identityProfile(identity);
-    const started = performance.now(); const snapshot = await this.snapshot(signal);
+    const started = performance.now(); const snapshot = await this.snapshot(signal); const inventoryDurationMs = Math.round(performance.now() - started);
     if (room && !snapshot.rooms.some(r => r.id === room)) throw new Error('The selected room is no longer available. Refresh the home.');
     if (typeof location !== 'string' || (location && !snapshot.rooms.some(r => r.id === location))) throw new Error('Your selected location is no longer available. Select Where I am again.');
     const person = identityProfile(this.actor ? identityForName(this.actor.name) : identity, snapshot.rooms);
     const user = { name: this.actor ? this.actor.name : identity === 'other' ? null : person.name, office: person.office, location: snapshot.rooms.find(r => r.id === location) || null };
     const devices = room ? snapshot.devices.filter(d => d.room === room) : snapshot.devices;
     let plans, stages = [];
+    try {
     if (manual) {
       validateLiveService(manual, devices);
       plans = [{ intent: 'smarthome_command', targets: devices.filter(d => d.entity_id === manual.data.entity_id), services: [structuredClone(manual)] }];
@@ -131,8 +132,9 @@ export class LiveHome {
       const questions = buildLiveQuestions(devices);
       const evaluate = part => { validatePersonalReferences(part, user, room); return this.dependencies.evaluate(part, devices, context, signal, questions, user); };
       const initial = await evaluate(command.trim());
+      stages.push(initial);
       const first = planLiveDecision(initial, devices, user);
-      stages.push({ ...initial, used: first.used }); plans = [first];
+      initial.used = first.used; plans = [first];
       if (first.intent === 'information_request') stages.push(await this.dependencies.answerQuestion(command, signal, user));
       else if (first.intent === 'compound') {
         const split = await this.dependencies.splitCommand(command, signal, user); stages.push(split);
@@ -142,12 +144,13 @@ export class LiveHome {
         stages.push(...evaluated.map((stage, i) => ({ ...stage, used: plans[i].used, parallel: true, parallelDurationMs })));
       }
     }
+    } catch (error) { error.stages = stages; throw error; }
     const services = plans.flatMap(p => p.services); const queried = plans.filter(p => p.intent === 'smarthome_query').flatMap(p => p.targets);
     if (services.length > 100) throw new Error('This request has more than 100 actions. Split it into smaller requests.');
     const skipped = plans.flatMap(p => p.skipped || []);
     if (skipped.length) stages.push({ kind: 'result', provider: 'Home Assistant', text: `Skipped unavailable or unknown devices: ${skipped.map(d => `${d.name} (${d.roomName})`).join(', ')}.` });
     if (queried.length) stages.push({ kind: 'result', provider: 'Home Assistant', text: queried.map(d => `${d.name} (${d.roomName}): ${liveLabel(d)}.`).join('\n') });
-    const result = { ...snapshot, command, user, context, stages, calls: [], changed: [], durationMs: Math.round(performance.now() - started), live: true,
+    const result = { ...snapshot, inventoryDurationMs, command, user, context, stages, calls: [], changed: [], durationMs: Math.round(performance.now() - started), live: true,
       skipped: skipped.map(d => ({ name: d.name, roomName: d.roomName, entity_id: d.entity_id })),
       actions: services.map(call => { const device = validateLiveService(call, snapshot.devices); return { ...call, name: device.name, roomName: device.roomName, before: liveLabel(device), label: serviceLabel(call, device) }; }),
       outcome: services.length ? `${services.length} ${services.length === 1 ? 'action' : 'actions'} ready. Review the targets, then apply.` : 'Response ready. No devices changed.' };
@@ -180,7 +183,11 @@ export class LiveHome {
       this.pending.delete(planId); // Consume before the first physical write; never replay it.
       const calls = []; let failure = '';
       for (const call of plan.services) {
-        try { await this.client.callService(call.domain, call.service, call.data, signal); calls.push({ ...call, status: 'sent' }); }
+        try {
+          const returned = await this.client.callService(call.domain, call.service, call.data, signal);
+          const response = Array.isArray(returned) ? returned.filter(state => state.entity_id === call.data.entity_id).map(state => ({ entity_id: state.entity_id, state: state.state, attributes: Object.fromEntries(['brightness', 'temperature', 'current_temperature', 'current_position', 'hvac_mode'].filter(key => state.attributes?.[key] !== undefined).map(key => [key, state.attributes[key]])) })) : null;
+          calls.push({ ...call, status: 'sent', response });
+        }
         catch (error) { calls.push({ ...call, status: 'unconfirmed', error: error.message }); failure = error.message; break; }
       }
       if (this.settleMs) await delay(this.settleMs);
