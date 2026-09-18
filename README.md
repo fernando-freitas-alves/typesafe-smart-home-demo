@@ -1,5 +1,9 @@
 # TypeSafe smart-home demo
 
+<p align="center">
+  <img width="1712" height="1818" alt="image" src="https://github.com/user-attachments/assets/d179c860-c4c0-4bb3-8492-06827f589452" />
+</p>
+
 A local recreation of the interface and execution patterns in [Allie Laabs’s 6:13 Loom recording](https://www.loom.com/share/18c4dbcf8db546dfb2d7f2ef018e78e4), with live TypeSafe evaluation and entirely mocked Home Assistant devices.
 
 ## Run
