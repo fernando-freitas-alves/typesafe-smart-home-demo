@@ -1,6 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSplitCommands } from '../providers.mjs';
+import { parseSplitCommands, evaluate } from '../providers.mjs';
+
+test('Jev receives identity and location even without device states; mock request format stays compatible', async t => {
+  const previous = process.env.TYPESAFE_API_KEY; process.env.TYPESAFE_API_KEY = 'test-key';
+  t.after(() => { if (previous === undefined) delete process.env.TYPESAFE_API_KEY; else process.env.TYPESAFE_API_KEY = previous; });
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(url, 'https://api.typesafe.ai/v1/systemone'); requests.push(JSON.parse(options.body));
+    return Response.json({ answers: {}, model: 'jev-test' });
+  });
+  const user = { name: 'Fernando', office: { id: 'a', name: 'Fernando’s office' }, location: { id: 'b', name: 'Kitchen' } };
+  const devices = [{ id: 'example' }]; const command = 'Turn on the lights here';
+  await evaluate(command, devices, 'none', undefined, {}, user);
+  assert.deepEqual(requests.at(-1).state, { request: command, user });
+  await evaluate(command, devices, 'devices', undefined, {}, user);
+  assert.deepEqual(requests.at(-1).state, { request: command, user, devices });
+  await evaluate(command, devices, 'none', undefined, {});
+  assert.equal(requests.at(-1).state, command);
+  await evaluate(command, devices, 'devices', undefined, {});
+  assert.deepEqual(requests.at(-1).state, { request: command, devices });
+});
 
 test('accepts the fenced JSON format returned by the live Haiku API', () => {
   const response = '```json\n["turn off the kitchen lights", "lock the office door"]\n```';

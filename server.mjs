@@ -14,6 +14,7 @@ const publicFiles = new Map([
   ['/live', ['public/live.html', 'text/html']], ['/live/', ['public/live.html', 'text/html']],
   ['/live.js', ['public/live.js', 'text/javascript']], ['/live.css', ['public/live.css', 'text/css']],
   ['/live-home.mjs', ['live-home.mjs', 'text/javascript']],
+  ['/live-identity.mjs', ['live-identity.mjs', 'text/javascript']],
 ]);
 function send(response, status, data) { response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); response.end(JSON.stringify(data)); }
 

@@ -32,11 +32,13 @@ The server reads `TYPESAFE_API_KEY` from the root `.env`. It rereads configurati
 2. Open [Live Home](http://localhost:5188/live). Rooms and devices come from HA; states refresh every 10 seconds.
 3. Ask a question or **Preview** a command. Review the named targets, then **Apply** to change real devices.
 
+**Context:** select **I am** and **Where I am**. Both go to Jev with every request, even without current device states. “My office” / “meu escritório” uses the selected person's HA office; “here” / “aqui” uses their location. **Someone else** has no personal office. Choices stay in this browser; changing either clears the preview. These are preferences, not a login or automatic location tracking.
+
 **Supported:** lights, fans, climate modes/temperatures, covers, media controls, and selected sensors. Hidden, disabled, and maintenance entities are filtered out. Unavailable devices cannot be controlled. Locks are read-only; switches require an explicit `HA_SWITCH_ENTITIES` allowlist. Standard HA service calls preserve existing HA automation and lighting-override behavior.
 
 **Before applying:** previews expire after 2 minutes and are rejected if target states changed. Actions run once, stop on failure, and report observed states; physical commands are never automatically retried. A failed batch may have partially executed.
 
-**Privacy:** HA credentials stay server-side; inventory is discovered at runtime, not stored in source. TypeSafe receives the request plus room/device names; the optional context checkbox also sends current states. Manual controls work without model calls. This server binds to localhost and is not a hosted public dashboard.
+**Privacy:** HA credentials stay server-side; inventory is discovered at runtime, not stored in source. TypeSafe receives the request, room/device names, and selected identity/location; the checkbox adds current states. Claude also receives identity/location when splitting or answering. Manual controls make no model calls. The server binds to localhost.
 
 ## Try it
 

@@ -1,6 +1,12 @@
 import { el, timing, renderStages } from '/trace-ui.js';
 import { liveIcons, liveActive, liveLabel, availableActions, serviceLabel } from '/live-home.mjs';
+import { identityProfile } from '/live-identity.mjs';
 const $ = id => document.getElementById(id);
+const identityStorageKey = 'typesafe-live-identity';
+const locationStorageKey = 'typesafe-live-location';
+let savedLocation = '';
+try { $('identity').value = identityProfile(localStorage.getItem(identityStorageKey) || 'other').id; } catch { $('identity').value = 'other'; }
+try { savedLocation = localStorage.getItem(locationStorageKey) || ''; } catch { /* Location can still be selected without storage. */ }
 let home = { devices: [], rooms: [] }, busy = false, connected = false, refreshing = false;
 let current = null, pending = null, selected = null, records = [], homeSignature = '', connectionError = '';
 const announce = text => { $('announcement').textContent = text; };
@@ -8,7 +14,7 @@ function error(text) { $('error').textContent = text; $('error').hidden = !text;
 function setBusy(value) {
   busy = value; $('send').disabled = value || !connected; $('send').textContent = value ? 'Working…' : 'Preview';
   $('command').readOnly = value;
-  for (const node of document.querySelectorAll('#refresh, #room-filter, #context, .example, #device-controls button, #apply-plan')) node.disabled = value;
+  for (const node of document.querySelectorAll('#refresh, #room-filter, #identity, #location, #context, .example, #device-controls button, #apply-plan')) node.disabled = value;
   $('trace').setAttribute('aria-busy', String(value));
 }
 async function api(path, data) {
@@ -20,15 +26,25 @@ async function api(path, data) {
   return result;
 }
 function invalidate() { pending = null; $('action-preview').hidden = true; $('action-preview').replaceChildren(); }
+function updateIdentityHint() {
+  const person = identityProfile($('identity').value, home.rooms);
+  $('identity-hint').textContent = `Jev context · ${person.office ? `“My office” → ${person.office.name}` : person.id === 'other' ? 'Name a room, or select where you are to use “here”.' : home.rooms.length ? 'Office not found. Name a room in your request.' : 'Finding your office…'}`;
+}
 function updateHome(next) {
   const room = $('room-filter').value; const signature = JSON.stringify(next.devices);
   const roomsChanged = JSON.stringify(home.rooms) !== JSON.stringify(next.rooms);
   home = next; connected = !next.stale;
+  updateIdentityHint();
   if (roomsChanged) {
     $('room-filter').replaceChildren(el('option', '', 'All rooms'));
     $('room-filter').firstChild.value = '';
     for (const area of home.rooms) { const option = el('option', '', area.name); option.value = area.id; $('room-filter').append(option); }
     if (home.rooms.some(r => r.id === room)) $('room-filter').value = room;
+    $('location').replaceChildren(el('option', '', 'Not set'));
+    $('location').firstChild.value = '';
+    for (const area of home.rooms) { const option = el('option', '', area.name); option.value = area.id; $('location').append(option); }
+    if (home.rooms.some(r => r.id === savedLocation)) $('location').value = savedLocation;
+    else if (savedLocation) { savedLocation = ''; invalidate(); }
   }
   $('home-status').textContent = connected ? `Live · refreshed ${new Date(next.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Disconnected · showing last read';
   $('home-status').classList.toggle('disconnected', !connected);
@@ -92,7 +108,7 @@ async function preview(command, manual) {
   error(''); invalidate(); setBusy(true); $('command').value = command;
   $('trace').replaceChildren(el('p', 'empty-state pending', manual ? 'Preparing the device change…' : 'Evaluating your request against live devices…'));
   try {
-    const result = await api('/api/live/preview', { command, manual, room: $('room-filter').value, context: $('context').checked ? 'devices' : 'none' });
+    const result = await api('/api/live/preview', { command, manual, identity: $('identity').value, location: $('location').value, room: $('room-filter').value, context: $('context').checked ? 'devices' : 'none' });
     records.push(result); records = records.slice(-6); showResult(result);
   } catch (e) { error(e.message); $('trace').replaceChildren(el('p', 'empty-state', 'No actions were sent. Edit the request and preview again.')); announce(e.message); }
   finally { setBusy(false); }
@@ -160,15 +176,26 @@ function openDevice(id) {
 $('command-form').addEventListener('submit', event => { event.preventDefault(); preview($('command').value); });
 $('command').addEventListener('input', invalidate);
 $('room-filter').addEventListener('change', () => { invalidate(); renderHome(); });
+$('identity').addEventListener('change', () => {
+  invalidate(); error(''); updateIdentityHint();
+  try { localStorage.setItem(identityStorageKey, $('identity').value); } catch { /* The current selection still works when storage is unavailable. */ }
+  announce(`Selected ${$('identity').selectedOptions[0].textContent}. ${$('identity-hint').textContent} Preview again to use this selection.`);
+});
+$('location').addEventListener('change', () => {
+  invalidate(); error(''); savedLocation = $('location').value;
+  try { localStorage.setItem(locationStorageKey, savedLocation); } catch { /* The current selection still works when storage is unavailable. */ }
+  announce(`Location: ${$('location').selectedOptions[0].textContent}. Preview again to use this selection.`);
+});
 $('context').addEventListener('change', invalidate);
 $('search').addEventListener('input', () => renderHome()); $('kind-filter').addEventListener('change', () => renderHome());
 $('refresh').addEventListener('click', () => refreshHome());
 $('close-device').addEventListener('click', () => $('device-dialog').close());
 $('device-dialog').addEventListener('close', () => [...$('rooms').querySelectorAll('[data-entity]')].find(n => n.dataset.entity === selected)?.focus());
-for (const command of ['Which lights are on?', 'What is the temperature?', 'Turn off the lights', 'Close the blinds']) {
+for (const command of ['Turn on all my office lights', 'Which lights are on?', 'What is the temperature?', 'Close the blinds']) {
   const button = el('button', 'example', command); button.addEventListener('click', () => { $('command').value = command; invalidate(); $('command').focus(); }); $('examples').append(button);
 }
 api('/api/config').then(config => { $('connection').textContent = config.typesafe ? `TypeSafe · ${config.llm}` : 'TypeSafe key missing · manual controls available'; }).catch(() => { $('connection').textContent = 'API unavailable'; });
+updateIdentityHint();
 await refreshHome();
 setInterval(() => { if (!busy && !document.hidden) refreshHome(false); }, 10000);
 setInterval(() => { if (pending && Date.now() >= Date.parse(pending.expiresAt)) { invalidate(); announce('Preview expired. Preview the request again.'); } }, 1000);

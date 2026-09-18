@@ -11,6 +11,13 @@
   <main class="app">
     <section class="command-bar" aria-label="Live home assistant">
       <div class="live-title"><h1>TypeSafe <span>Live Home</span></h1><a href="/">Mock demo ↗</a></div>
+      <div class="identity-row">
+        <div class="identity-field"><label for="identity">I am</label>
+          <select id="identity" aria-describedby="identity-hint"><option value="fernando">Fernando</option><option value="flavia">Flavia</option><option value="other" selected>Someone else</option></select></div>
+        <div class="identity-field"><label for="location">Where I am</label>
+          <select id="location"><option value="">Not set</option></select></div>
+        <span id="identity-hint">Name a room in your request.</span>
+      </div>
       <form id="command-form">
         <label class="sr-only" for="command">Command or question</label>
         <input id="command" placeholder="Ask about your home or describe a change…" autocomplete="off" maxlength="1500" required>

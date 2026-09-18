@@ -90,7 +90,7 @@ export function renderStages(result) {
     fragment.append(log);
   }
   const raw = el('details', 'service-log');
-  raw.append(el('summary', '', 'Request details and raw API answers'), el('pre', '', JSON.stringify({ command: result.command, context: result.context, durationMs: result.durationMs, stages: result.stages }, null, 2)));
+  raw.append(el('summary', '', 'Request details and raw API answers'), el('pre', '', JSON.stringify({ command: result.command, user: result.user, context: result.context, durationMs: result.durationMs, stages: result.stages }, null, 2)));
   fragment.append(raw);
   return fragment;
 }

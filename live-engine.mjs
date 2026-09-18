@@ -3,6 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import * as providers from './providers.mjs';
 import { buildQuestions } from './questions.mjs';
 import { HomeAssistantClient } from './ha-client.mjs';
+import { identityProfile, validatePersonalReferences } from './live-identity.mjs';
 import { buildLiveInventory, liveLabel, deviceFingerprint, validateLiveService, serviceLabel, serviceObserved } from './live-home.mjs';
 
 const choice = (instructions, criteria) => ({ type: 'choice', instructions, criteria });
@@ -13,11 +14,11 @@ export function buildLiveQuestions(devices) {
   questions.device_type.criteria = { ...questions.device_type.criteria, cover: 'Windows, blinds, curtains and shades', sensor: 'Temperature, humidity, battery, presence and other sensor readings' };
   questions.scope = choice('Does the request identify one named device, every device of a kind in one room, or a whole-house group?', {
     specific_device: 'One named device, including a light qualified as ambient, accent, mirror, sink, ceiling, or bedside. A room name plus a specific device name is still ONE device. Examples: office ambient light, kitchen sink light, bedroom AC.',
-    area: 'A room-wide GROUP, such as kitchen lights or all fans in the office, with no individual device qualifier. Do not choose this for ambient light, accent light, sink light, or other specifically named fixtures.',
+    area: 'A room-wide GROUP, such as kitchen lights or all fans in the office, with no individual device qualifier. Personal references use user.office for my office and user.location for here or this room. Do not choose this for ambient light, accent light, sink light, or other specifically named fixtures.',
     whole_house: 'Every matching device across the home, or an unqualified plural group such as all lights or which lights are on.',
   });
-  questions.room = choice('Which room is the user referring to? Match English or Portuguese room names.', { ...Object.fromEntries(devices.map(d => [d.room, `${d.roomName}; ${roomTranslation(d.roomName)}`])), none_of_these: 'The room is absent or unspecified; do not substitute another room' });
-  questions.device = choice('Which specific device should receive the request?', { ...Object.fromEntries(devices.map(d => [d.id, `${d.name}; ${d.kind}; room: ${d.roomName}${d.aliases?.length ? '; aliases: ' + d.aliases.join(', ') : ''}`])), none_of_these: 'No single device matches the requested name and room; never guess an absent device' });
+  questions.room = choice('Which room is the user referring to? Match English or Portuguese room names. Use user.office for my office / meu escritório, and user.location for here / this room / aqui. Explicit room names take precedence over the current location. A location alone does not limit an explicit whole-house request.', { ...Object.fromEntries(devices.map(d => [d.room, `${d.roomName}; ${roomTranslation(d.roomName)}`])), none_of_these: 'The room is absent or unspecified; do not substitute another room' });
+  questions.device = choice('Which specific device should receive the request? Use user.office and user.location to resolve personal room references; explicit room names take precedence.', { ...Object.fromEntries(devices.map(d => [d.id, `${d.name}; ${d.kind}; room: ${d.roomName}${d.aliases?.length ? '; aliases: ' + d.aliases.join(', ') : ''}`])), none_of_these: 'No single device matches the requested name and room; never guess an absent device' });
   questions.light_action.criteria.dim = 'Set a specific brightness percentage or dim the light';
   questions.thermostat_action.criteria = { ...questions.thermostat_action.criteria, set_temperature: 'Set a numeric target temperature without changing HVAC mode' };
   questions.cover_action = choice('What should happen to the covers?', { open_cover: 'Open windows, curtains, blinds or shades', close_cover: 'Close windows, curtains, blinds or shades', stop_cover: 'Stop cover movement', set_cover_position: 'Set a specific open percentage' });
@@ -103,11 +104,15 @@ export class LiveHome {
   }
   async snapshot(signal) { return buildLiveInventory(await this.client.inventory(signal), this.settings()); }
   async preview(input, signal) {
-    const { command, room = '', context = 'none', manual } = input;
+    const { command, room = '', context = 'none', manual, identity = 'other', location = '' } = input;
     if (typeof command !== 'string' || !command.trim() || command.length > 1500) throw new Error('Enter a request between 1 and 1,500 characters.');
     if (!['none', 'devices'].includes(context)) throw new Error('Invalid device context.');
+    identityProfile(identity);
     const started = performance.now(); const snapshot = await this.snapshot(signal);
     if (room && !snapshot.rooms.some(r => r.id === room)) throw new Error('The selected room is no longer available. Refresh the home.');
+    if (typeof location !== 'string' || (location && !snapshot.rooms.some(r => r.id === location))) throw new Error('Your selected location is no longer available. Select Where I am again.');
+    const person = identityProfile(identity, snapshot.rooms);
+    const user = { name: identity === 'other' ? null : person.name, office: person.office, location: snapshot.rooms.find(r => r.id === location) || null };
     const devices = room ? snapshot.devices.filter(d => d.room === room) : snapshot.devices;
     let plans, stages = [];
     if (manual) {
@@ -115,13 +120,13 @@ export class LiveHome {
       plans = [{ intent: 'smarthome_command', targets: devices.filter(d => d.entity_id === manual.data.entity_id), services: [structuredClone(manual)] }];
     } else {
       const questions = buildLiveQuestions(devices);
-      const evaluate = part => this.dependencies.evaluate(part, devices, context, signal, questions);
+      const evaluate = part => { validatePersonalReferences(part, user, room); return this.dependencies.evaluate(part, devices, context, signal, questions, user); };
       const initial = await evaluate(command.trim());
       const first = planLiveDecision(initial, devices);
       stages.push({ ...initial, used: first.used }); plans = [first];
-      if (first.intent === 'information_request') stages.push(await this.dependencies.answerQuestion(command, signal));
+      if (first.intent === 'information_request') stages.push(await this.dependencies.answerQuestion(command, signal, user));
       else if (first.intent === 'compound') {
-        const split = await this.dependencies.splitCommand(command, signal); stages.push(split);
+        const split = await this.dependencies.splitCommand(command, signal, user); stages.push(split);
         const time = performance.now(); const evaluated = await Promise.all(split.commands.map(evaluate)); const parallelDurationMs = Math.round(performance.now() - time);
         plans = evaluated.map(stage => planLiveDecision(stage, devices));
         if (plans.some(p => !['smarthome_query', 'smarthome_command'].includes(p.intent))) throw new Error('A sub-command needs clarification. Send it separately. No devices were changed.');
@@ -133,7 +138,7 @@ export class LiveHome {
     const skipped = plans.flatMap(p => p.skipped || []);
     if (skipped.length) stages.push({ kind: 'result', provider: 'Home Assistant', text: `Skipped unavailable or unknown devices: ${skipped.map(d => `${d.name} (${d.roomName})`).join(', ')}.` });
     if (queried.length) stages.push({ kind: 'result', provider: 'Home Assistant', text: queried.map(d => `${d.name} (${d.roomName}): ${liveLabel(d)}.`).join('\n') });
-    const result = { ...snapshot, command, context, stages, calls: [], changed: [], durationMs: Math.round(performance.now() - started), live: true,
+    const result = { ...snapshot, command, user, context, stages, calls: [], changed: [], durationMs: Math.round(performance.now() - started), live: true,
       skipped: skipped.map(d => ({ name: d.name, roomName: d.roomName, entity_id: d.entity_id })),
       actions: services.map(call => { const device = validateLiveService(call, snapshot.devices); return { ...call, name: device.name, roomName: device.roomName, before: liveLabel(device), label: serviceLabel(call, device) }; }),
       outcome: services.length ? `${services.length} ${services.length === 1 ? 'action' : 'actions'} ready. Review the targets, then apply.` : 'Response ready. No devices changed.' };

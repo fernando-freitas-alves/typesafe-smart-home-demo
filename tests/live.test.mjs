@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { LiveHome, buildLiveQuestions, planLiveDecision } from '../live-engine.mjs';
 import { buildLiveInventory, validateLiveService } from '../live-home.mjs';
 import { HomeAssistantClient } from '../ha-client.mjs';
+import { identityProfile } from '../live-identity.mjs';
 
 function fixture() {
   const states = [
@@ -36,6 +37,110 @@ function stage(devices, values = {}, command = 'Turn on the study light') {
   const answers = Object.fromEntries(Object.entries(questions).map(([key, q]) => [key, q.type === 'noul' ? { type: 'noul', noul: values.compound || 0 } : { type: 'choice', choice: selected[key] || Object.keys(q.criteria)[0], confidence: 1, probabilities: Object.fromEntries(Object.keys(q.criteria).map(k => [k, k === (selected[key] || Object.keys(q.criteria)[0]) ? 1 : 0])) }]));
   return { kind: 'typesafe', provider: 'TypeSafe', command, questions, answers, durationMs: 1 };
 }
+
+function peopleFixture() {
+  const raw = fixture();
+  raw.areas = [{ area_id: 'study', name: 'Fernando’s office' }, { area_id: 'studio_b', name: 'Flavia’s office' }];
+  raw.entities.find(e => e.entity_id === 'light.hall').area_id = 'studio_b';
+  return raw;
+}
+
+test('profile offices follow runtime HA names and reject missing or ambiguous mappings', () => {
+  for (const name of ['Fernando’s office', "Fernando's office", 'Fernando office', 'Escritório do Fernando']) {
+    assert.equal(identityProfile('fernando', [{ id: 'arbitrary', name }]).office.id, 'arbitrary');
+  }
+  assert.equal(identityProfile('flavia', [{ id: 'a', name: 'Escritório da Flávia' }]).office.id, 'a');
+  assert.equal(identityProfile('fernando', [{ id: 'a', name: 'Flavia’s office' }]).office, null);
+  assert.equal(identityProfile('fernando', [{ id: 'a', name: 'Fernando office' }, { id: 'b', name: 'Fernando’s office' }]).office, null);
+  assert.equal(identityProfile('other', [{ id: 'a', name: 'Fernando’s office' }]).office, null);
+});
+
+test('both identities and a separate location reach every Jev request without rewriting the command', async () => {
+  const client = fakeClient(peopleFixture()); const received = [];
+  const home = new LiveHome({ client, settings: () => ({}), dependencies: {
+    evaluate: async (command, devices, context, signal, questions, user) => {
+      received.push({ command, context, user });
+      return stage(devices, { scope: 'area', room: /here/.test(command) ? user.location.id : user.office.id }, command);
+    },
+  } });
+  for (const [identity, name, office, entity] of [['fernando', 'Fernando', 'study', 'light.study'], ['flavia', 'Flavia', 'studio_b', 'light.hall']]) {
+    for (const context of ['none', 'devices']) {
+      const command = 'Turn on all my office lights';
+      const result = await home.preview({ command, identity, location: 'studio_b', context });
+      assert.equal(received.at(-1).command, command); assert.equal(received.at(-1).context, context);
+      assert.deepEqual(result.user, { name, office: { id: office, name: `${name}’s office` }, location: { id: 'studio_b', name: 'Flavia’s office' } });
+      assert.deepEqual(received.at(-1).user, result.user);
+      assert.deepEqual(result.actions.map(a => a.data.entity_id), [entity]);
+    }
+  }
+  const here = await home.preview({ command: 'Turn on all lights here', identity: 'fernando', location: 'studio_b' });
+  assert.deepEqual(here.actions.map(a => a.data.entity_id), ['light.hall']);
+  const guest = await home.preview({ command: 'Turn on all lights here', identity: 'other', location: 'study' });
+  assert.equal(guest.user.name, null); assert.equal(guest.user.office, null);
+  assert.deepEqual(guest.actions.map(a => a.data.entity_id), ['light.study']);
+  assert.equal(client.writes.length, 0);
+});
+
+test('unknown personal references, stale locations, invalid identities, and conflicting room filters stop before Jev', async () => {
+  const client = fakeClient(peopleFixture()); let evaluated = 0;
+  const home = new LiveHome({ client, settings: () => ({}), dependencies: { evaluate: async () => { evaluated++; throw new Error('Should not evaluate'); } } });
+  for (const command of ['Turn on all my office lights', 'Acenda as luzes do meu escritório']) {
+    await assert.rejects(home.preview({ command, identity: 'other' }), /choose Fernando or Flavia/);
+    await assert.rejects(home.preview({ command, identity: 'fernando', room: 'studio_b' }), /Select that room or All rooms/);
+  }
+  for (const command of ['Turn on the lights here', 'Acenda as luzes aqui']) {
+    await assert.rejects(home.preview({ command, identity: 'fernando' }), /select Where I am/);
+    await assert.rejects(home.preview({ command, identity: 'fernando', location: 'studio_b', room: 'study' }), /Select that room or All rooms/);
+  }
+  await assert.rejects(home.preview({ command: 'Lights on', identity: '__proto__' }), /Choose Fernando/);
+  await assert.rejects(home.preview({ command: 'Lights on', location: 'removed' }), /location is no longer available/);
+  await assert.rejects(home.preview({ command: 'Lights on', location: { id: 'study' } }), /location is no longer available/);
+  client.raw.areas[0].name = 'Renamed room';
+  await assert.rejects(home.preview({ command: 'Turn on my office lights', identity: 'fernando' }), /Could not identify one office/);
+  assert.equal(evaluated, 0); assert.equal(client.writes.length, 0); assert.equal(home.pending.size, 0);
+});
+
+test('compound requests retain the same selected context through splitting and each evaluation', async () => {
+  const client = fakeClient(peopleFixture()); const contexts = [];
+  const command = 'Turn on my office lights and turn off the lights here';
+  const home = new LiveHome({ client, settings: () => ({}), dependencies: {
+    evaluate: async (part, devices, context, signal, questions, user) => {
+      contexts.push(user);
+      return stage(devices, part === command ? { compound: 1 } : { scope: 'area', room: part.includes('here') ? user.location.id : user.office.id, light_action: part.includes('off') && !part.includes('office') ? 'turn_off' : 'turn_on' }, part);
+    },
+    splitCommand: async (part, signal, user) => {
+      assert.equal(part, command); contexts.push(user);
+      return { kind: 'split', commands: ['Turn on my office lights', 'Turn off the lights here'] };
+    },
+  } });
+  const result = await home.preview({ command, identity: 'fernando', location: 'studio_b' });
+  assert.equal(contexts.length, 4); for (const user of contexts) assert.deepEqual(user, result.user);
+  assert.deepEqual(result.actions.map(a => [a.service, a.data.entity_id]), [['turn_on', 'light.study'], ['turn_off', 'light.hall']]);
+  assert.equal(client.writes.length, 0);
+});
+
+test('explicit rooms and manual controls stay independent of selected identity and location', async () => {
+  const client = fakeClient(peopleFixture());
+  const home = new LiveHome({ client, settings: () => ({}), dependencies: {
+    evaluate: async (command, devices) => stage(devices, { scope: 'area', room: 'studio_b' }, command),
+  } });
+  const result = await home.preview({ command: 'Turn on all Flavia’s office lights', identity: 'fernando', location: 'study' });
+  assert.deepEqual(result.actions.map(a => a.data.entity_id), ['light.hall']);
+  const explicit = await home.preview({ command: 'Turn on', manual: manual('light.hall'), identity: 'fernando', location: 'study' });
+  assert.deepEqual(explicit.actions.map(a => a.data.entity_id), ['light.hall']);
+  assert.equal(client.writes.length, 0);
+});
+
+test('general answers receive the same identity and location context as Jev', async () => {
+  const client = fakeClient(peopleFixture()); let answered;
+  const home = new LiveHome({ client, settings: () => ({}), dependencies: {
+    evaluate: async (command, devices) => stage(devices, { intent: 'information_request' }, command),
+    answerQuestion: async (command, signal, user) => { answered = user; return { kind: 'response', text: user.name }; },
+  } });
+  const result = await home.preview({ command: 'Who am I?', identity: 'flavia', location: 'study' });
+  assert.deepEqual(answered, result.user); assert.equal(answered.name, 'Flavia'); assert.equal(answered.location.id, 'study');
+  assert.equal(result.planId, undefined); assert.equal(client.writes.length, 0);
+});
 
 test('live discovery uses HA areas, filters maintenance/private attributes, and protects switches and locks', () => {
   const data = buildLiveInventory(fixture(), { haSwitchEntities: ['switch.desk'] });
