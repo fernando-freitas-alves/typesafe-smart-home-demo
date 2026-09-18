@@ -32,7 +32,7 @@ The bridge listens only on `127.0.0.1:5189`. Do not publish that port or add an 
 - **Location is manual and per chat.** Choose the room or its bathroom beside the message box. If you ask “turn on the lights” without a location, the conversation asks you to choose one. Presence sensors do not identify who is there.
 - **Review before applying.** Check the proposed devices, deselect any actions, then click **Apply selected** or reply **yes**. Keep typing to revise the request; revisions replace the old approval. **Cancel** makes no changes. Previews expire after two minutes and after a bridge restart.
 - **History starts collapsed.** Open the chat-history icon to switch conversations or start a new one. Each HA account has its own saved chats. Chat options let you rename or archive a conversation; archived history stays in server storage.
-- **Tool details start collapsed.** Expand a tool row to see the operations, request, and available timing. These are actual tool summaries; they are not model reasoning. Results distinguish a sent command from an observed device state.
+- **Tool details start collapsed.** Expand a tool row to see the operations, request, and available timing. Choose **Request & response** under a tool, then expand **Request**, **Response**, **Usage**, or **Attempts** to inspect and copy JSON. Jev details include the questions, context, returned probabilities, model, timing, and request ID when supplied. Full payloads are loaded only when opened. Older messages keep their summaries and explain when full details were not recorded. These are saved API/tool data, not model reasoning. Results distinguish a sent command from an observed device state.
 
 Bathrooms and closets remain app-only spaces inside the original HA area. Name or alias their devices with `bathroom`, `washroom`, `banheiro`, `lavabo`, `closet`, or `dressing room`. HA rooms and presence automations do not need to change.
 
@@ -42,7 +42,7 @@ HA filters inventory by the signed-in user’s read permissions. Device calls us
 
 TypeSafe receives request text, the account’s display name, selected location, and eligible device metadata/states. Anthropic receives recent conversation context and proposed actions for follow-ups, plus requests for splitting or general answers. Provider charges may apply.
 
-Chats are stored as private JSON files in `data/`, separated by hashed HA user ID. Back up this directory if you want to keep history. Do not commit it or serve it as a static directory. The HA host administrator can access these files.
+Chats are stored as private JSON files in `data/`, separated by hashed HA user ID. Sanitized tool payloads live separately in `data/tool-details/` and can only be retrieved through their owning account and conversation. Credentials are removed; state responses are permission/attribute filtered. Inspecting a saved payload never re-executes a request. Back up this directory if you want to keep history. Do not commit it or serve it as a static directory. The HA host administrator can access these files.
 
 ## Update or recover
 

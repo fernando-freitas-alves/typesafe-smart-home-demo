@@ -5,15 +5,15 @@ const statuses = { applied: 'Sent to Home Assistant', revised: 'Replaced by your
 export class HomeChatPanel extends HTMLElement {
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
-    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=3', import.meta.url); stylesheet.onload = () => this.scrollBottom();
+    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=4', import.meta.url); stylesheet.onload = () => this.scrollBottom();
     this.view = document.createElement('div'); this.view.style.display = 'contents'; this.shadowRoot.append(stylesheet, this.view);
-    this.sidebar = false; this.busy = false; this.data = null; this.draft = ''; this.error = ''; this.started = false; this.selections = new Map();
+    this.sidebar = false; this.busy = false; this.data = null; this.draft = ''; this.error = ''; this.started = false; this.selections = new Map(); this.toolDetails = new Map();
     this.onResize = () => this.style.setProperty('--chat-viewport', `${window.visualViewport?.height || window.innerHeight}px`);
   }
   set hass(value) {
     const changedUser = this._hass?.user?.id && this._hass.user.id !== value?.user?.id;
     this._hass = value; this.style.colorScheme = value?.themes?.darkMode ? 'dark' : 'light';
-    if (changedUser) { this.data = null; this.started = false; this.draft = ''; this.sidebar = false; this.selections.clear(); }
+    if (changedUser) { this.data = null; this.started = false; this.draft = ''; this.sidebar = false; this.selections.clear(); this.toolDetails.clear(); }
     if (this.isConnected && value && !this.started) this.start();
   }
   set narrow(value) { this._narrow = value; this.toggleAttribute('narrow', Boolean(value)); }
@@ -54,7 +54,58 @@ export class HomeChatPanel extends HTMLElement {
   }
   tools(items) {
     if (!items?.length) return '';
-    return `<details class="tools"><summary>${icon('chevron-right', 'disclosure')}${icon('tools')}<span>Used ${items.length} ${items.length === 1 ? 'tool' : 'tools'}</span></summary><ol>${items.map(item => `<li><div class="tool-heading">${icon(item.status === 'complete' ? 'check' : 'alert-circle-outline')}<strong>${escape(item.name)}</strong>${item.durationMs ? `<span>${(item.durationMs / 1000).toFixed(1)}s</span>` : ''}</div><p>${escape(item.detail)}</p>${item.provider ? `<small>${escape(item.provider)}</small>` : ''}</li>`).join('')}</ol></details>`;
+    return `<details class="tools"><summary>${icon('chevron-right', 'disclosure')}${icon('tools')}<span>Used ${items.length} ${items.length === 1 ? 'tool' : 'tools'}</span></summary><ol>${items.map(item => `<li><div class="tool-heading">${icon(item.status === 'complete' ? 'check' : 'alert-circle-outline')}<strong>${escape(item.name)}</strong>${item.durationMs !== undefined ? `<span>${(item.durationMs / 1000).toFixed(1)}s</span>` : ''}</div><p>${escape(item.detail)}</p>${item.provider ? `<small>${escape(item.provider)}</small>` : ''}<details class="tool-inspector" data-tool-details="${escape(item.detailsId || '')}"><summary>${icon('chevron-right', 'disclosure')}${icon('code-json')}<span>Request &amp; response</span></summary><div class="tool-inspector-body">${item.detailsId ? '<p role="status">Open to load saved details.</p>' : `<p>${escape(item.detailsNote || 'Full payloads were not recorded for this older message. Send a new message to capture them.')}</p>`}</div></details></li>`).join('')}</ol></details>`;
+  }
+  async loadToolDetails(disclosure) {
+    const id = disclosure.dataset.toolDetails;
+    if (!disclosure.open || !id || disclosure.dataset.loading || disclosure.dataset.loaded) return;
+    const body = disclosure.querySelector('.tool-inspector-body'); const account = this.data.user.id;
+    disclosure.dataset.loading = 'true';
+    body.innerHTML = '<p role="status">Loading saved request and response…</p>';
+    try {
+      let details = this.toolDetails.get(id);
+      if (!details) {
+        const result = await this._hass.callApi('POST', 'typesafe_chat', { op: 'open', threadId: this.data.thread.id, toolDetailsId: id });
+        if (result.error) throw new Error(result.error);
+        details = result.details;
+        if (this.data?.user.id !== account) return;
+        this.toolDetails.set(id, details);
+      }
+      if (!disclosure.isConnected) return;
+      this.renderToolDetails(body, details); disclosure.dataset.loaded = 'true';
+    } catch (error) {
+      if (!disclosure.isConnected) return;
+      body.innerHTML = `<p role="alert">${escape(error.body?.error || error.message || 'Could not load saved details.')}</p><button class="text-button" data-retry-details>Retry</button>`;
+      body.querySelector('[data-retry-details]').onclick = () => this.loadToolDetails(disclosure);
+    } finally { delete disclosure.dataset.loading; }
+  }
+  renderToolDetails(body, details) {
+    const metadata = [
+      ['Source', details.provider || details.source], ['Model', details.response?.body?.model],
+      ['HTTP status', details.response?.status], ['Duration', details.durationMs === undefined ? undefined : `${details.durationMs} ms`],
+      ['Request ID', details.response?.requestId], ['Recorded', details.startedAt ? new Date(details.startedAt).toLocaleString() : undefined],
+    ].filter(([, value]) => value !== undefined);
+    const sections = [['Request', details.request], ['Response', details.response], ['Usage', details.response?.body?.usage], ['Attempts', details.attempts], ['Used questions', details.usedQuestions]].filter(([, value]) => value !== undefined);
+    body.innerHTML = `${details.note ? `<p class="trace-note">${escape(details.note)}</p>` : ''}${details.error ? `<p class="message-error">${escape(details.error)}</p>` : ''}<dl class="trace-meta">${metadata.map(([label, value]) => `<div><dt>${escape(label)}</dt><dd>${escape(value)}</dd></div>`).join('')}</dl>${sections.map(([label], index) => `<details class="trace-payload" data-payload="${index}"><summary>${icon('chevron-right', 'disclosure')}<span>${escape(label)}</span><span class="json-label">JSON</span></summary><div class="payload-body"></div></details>`).join('')}<p class="trace-note">Saved at execution time. Credentials are excluded. Inspecting details does not repeat the action.</p>`;
+    body.querySelectorAll('[data-payload]').forEach(section => section.addEventListener('toggle', () => {
+      if (!section.open || section.dataset.loaded) return;
+      const [label, value] = sections[Number(section.dataset.payload)]; const json = JSON.stringify(value, null, 2);
+      const panel = section.querySelector('.payload-body');
+      panel.innerHTML = `<div class="payload-toolbar"><span>${escape(label)} payload</span><button type="button" class="copy-json" aria-label="Copy ${escape(label.toLowerCase())} JSON">${icon('content-copy')}<span>Copy JSON</span></button></div><pre tabindex="0" aria-label="${escape(label)} JSON"><code>${escape(json)}</code></pre><span class="copy-status sr-only" role="status"></span>`;
+      panel.querySelector('button').onclick = async () => {
+        const status = panel.querySelector('.copy-status');
+        try {
+          if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(json);
+          else {
+            const field = document.createElement('textarea'); field.value = json; field.className = 'sr-only'; this.shadowRoot.append(field); field.select();
+            let copied; try { copied = document.execCommand('copy'); } finally { field.remove(); }
+            if (!copied) throw new Error('Copy unavailable');
+          }
+          panel.querySelector('button span').textContent = 'Copied'; status.textContent = `${label} JSON copied.`;
+        } catch { status.classList.remove('sr-only'); status.textContent = 'Copy is unavailable. Select the JSON text to copy it manually.'; }
+      };
+      section.dataset.loaded = 'true';
+    }));
   }
   actionForm(item) {
     const form = item.form; if (!form) return '';
@@ -85,6 +136,7 @@ export class HomeChatPanel extends HTMLElement {
       <div class="sr-only" role="status" aria-live="polite">${this.error ? 'Chat needs attention.' : !this.busy && hasMessages ? 'Response ready.' : ''}</div>
       </main></div>`;
     const root = this.shadowRoot;
+    root.querySelectorAll('[data-tool-details]').forEach(disclosure => disclosure.addEventListener('toggle', () => this.loadToolDetails(disclosure)));
     const menu = root.querySelector('ha-menu-button'); if (menu) { menu.hass = this._hass; menu.narrow = this._narrow; }
     root.querySelector('[data-sidebar]').onclick = () => { this.sidebar = !this.sidebar; this.render(); if (this.sidebar) root.querySelector('.sidebar [data-close]').focus(); };
     root.querySelectorAll('[data-close]').forEach(button => button.onclick = () => { this.sidebar = false; this.render(); root.querySelector('[data-sidebar]').focus(); });
