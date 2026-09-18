@@ -68,7 +68,9 @@ test('both identities and a separate location reach every Jev request without re
       const command = 'Turn on all my office lights';
       const result = await home.preview({ command, identity, location: 'studio_b', context });
       assert.equal(received.at(-1).command, command); assert.equal(received.at(-1).context, context);
-      assert.deepEqual(result.user, { name, office: { id: office, name: `${name}’s office` }, location: { id: 'studio_b', name: 'Flavia’s office' } });
+      assert.equal(result.user.name, name);
+      assert.deepEqual(result.user.office, { id: office, name: `${name}’s office`, area: { id: office, name: `${name}’s office` }, space: 'main' });
+      assert.deepEqual(result.user.location, { id: 'studio_b', name: 'Flavia’s office', area: { id: 'studio_b', name: 'Flavia’s office' }, space: 'main' });
       assert.deepEqual(received.at(-1).user, result.user);
       assert.deepEqual(result.actions.map(a => a.data.entity_id), [entity]);
     }
@@ -140,6 +142,72 @@ test('general answers receive the same identity and location context as Jev', as
   const result = await home.preview({ command: 'Who am I?', identity: 'flavia', location: 'study' });
   assert.deepEqual(answered, result.user); assert.equal(answered.name, 'Flavia'); assert.equal(answered.location.id, 'study');
   assert.equal(result.planId, undefined); assert.equal(client.writes.length, 0);
+});
+
+function subspaceFixture() {
+  const raw = peopleFixture();
+  const additions = [
+    { entity_id: 'light.bath_ceiling', state: 'off', attributes: { friendly_name: 'Fernando office bathroom ceiling', supported_color_modes: ['onoff'] } },
+    { entity_id: 'light.bath_mirror', state: 'off', attributes: { friendly_name: 'Fernando office bathroom mirror', supported_color_modes: ['onoff'] } },
+    { entity_id: 'light.closet', state: 'off', attributes: { friendly_name: 'Fernando office closet', supported_color_modes: ['onoff'] } },
+    { entity_id: 'binary_sensor.bath_presence', state: 'on', attributes: { friendly_name: 'Fernando office banheiro presença', device_class: 'occupancy' } },
+    { entity_id: 'light.mixed_group', state: 'off', attributes: { friendly_name: 'Office light group', supported_color_modes: ['onoff'], entity_id: ['light.study', 'light.bath_ceiling'] } },
+  ];
+  raw.states.push(...additions);
+  raw.entities.push(...additions.map(s => ({ entity_id: s.entity_id, device_id: 'hardware' })));
+  return raw;
+}
+
+test('bathrooms and closets are app locations within the existing HA area, including named presence sensors', () => {
+  const raw = subspaceFixture(); const before = structuredClone(raw);
+  const inventory = buildLiveInventory(raw);
+  assert.deepEqual(raw, before);
+  const bathroom = inventory.rooms.find(r => r.space === 'bathroom');
+  assert.deepEqual(bathroom, { id: 'study__space_bathroom', name: 'Fernando’s office · bathroom', area: { id: 'study', name: 'Fernando’s office' }, space: 'bathroom' });
+  assert.equal(inventory.devices.find(d => d.entity_id === 'binary_sensor.bath_presence').room, bathroom.id);
+  assert.equal(inventory.devices.find(d => d.entity_id === 'light.study').room, 'study');
+  assert.equal(inventory.rooms.find(r => r.space === 'closet').area.id, 'study');
+  assert.ok(!raw.areas.some(a => a.area_id === bathroom.id));
+});
+
+test('current-location commands isolate main room, bathroom, and closet and exclude groups spanning spaces', async () => {
+  const client = fakeClient(subspaceFixture());
+  const home = new LiveHome({ client, settings: () => ({}), dependencies: {
+    evaluate: async (command, devices, context, signal, questions, user) => {
+      assert.equal(command, 'Turn on the lights');
+      assert.equal(user.location.area.id, 'study');
+      return stage(devices, { scope: 'current_location', room: 'study' }, command);
+    },
+  } });
+  for (const [location, expected] of [['study', ['light.study']], ['study__space_bathroom', ['light.bath_ceiling', 'light.bath_mirror']], ['study__space_closet', ['light.closet']]]) {
+    const result = await home.preview({ command: 'Turn on the lights', identity: 'fernando', location });
+    assert.deepEqual(result.actions.map(a => a.data.entity_id).sort(), expected);
+    assert.equal(result.user.location.id, location);
+  }
+  assert.equal(client.writes.length, 0);
+});
+
+test('a missing location or speculative whole-house answer cannot expand an unnamed-room request', () => {
+  const devices = buildLiveInventory(subspaceFixture()).devices;
+  assert.throws(() => planLiveDecision(stage(devices, { scope: 'current_location' }, 'Turn on the lights'), devices), /Select Where I am/);
+  assert.throws(() => planLiveDecision(stage(devices, { scope: 'whole_house' }, 'Turn on the lights'), devices), /Name a room/);
+  assert.throws(() => planLiveDecision(stage(devices, { scope: 'whole_house' }, 'Turn on all lights'), devices), /Name a room/);
+  const whole = planLiveDecision(stage(devices, { scope: 'whole_house' }, 'Turn on all lights throughout the house'), devices, { location: { id: 'study__space_bathroom' } });
+  assert.ok(whole.targets.some(d => d.room === 'study'));
+  assert.ok(whole.targets.some(d => d.room === 'study__space_bathroom'));
+  assert.ok(whole.targets.some(d => d.room === 'studio_b'));
+});
+
+test('an explicitly named space overrides current location while retaining the parent area context', async () => {
+  const client = fakeClient(subspaceFixture());
+  const home = new LiveHome({ client, settings: () => ({}), dependencies: {
+    evaluate: async (command, devices) => stage(devices, { scope: 'area', room: command.includes('bathroom') ? 'study__space_bathroom' : 'study' }, command),
+  } });
+  const office = await home.preview({ command: 'Turn on my office lights', identity: 'fernando', location: 'study__space_bathroom' });
+  assert.deepEqual(office.actions.map(a => a.data.entity_id), ['light.study']);
+  const bath = await home.preview({ command: 'Turn on my office bathroom lights', identity: 'fernando', location: 'study', room: 'study__space_bathroom' });
+  assert.deepEqual(bath.actions.map(a => a.data.entity_id).sort(), ['light.bath_ceiling', 'light.bath_mirror']);
+  assert.equal(client.writes.length, 0);
 });
 
 test('live discovery uses HA areas, filters maintenance/private attributes, and protects switches and locks', () => {
@@ -240,7 +308,7 @@ test('temperature questions include the climate current-temperature reading', ()
 test('broad groups explicitly skip unavailable devices while named unavailable targets fail', () => {
   const raw = fixture(); raw.states.find(d => d.entity_id === 'light.hall').state = 'unavailable';
   const devices = buildLiveInventory(raw).devices;
-  const result = planLiveDecision(stage(devices, { scope: 'whole_house' }, 'Turn off all lights'), devices);
+  const result = planLiveDecision(stage(devices, { scope: 'whole_house' }, 'Turn off all lights throughout the house'), devices);
   assert.deepEqual(result.services.map(c => c.data.entity_id), ['light.study']);
   assert.deepEqual(result.skipped.map(d => d.entity_id), ['light.hall']);
   assert.throws(() => planLiveDecision(stage(devices, { device: 'light__hall' }), devices), /unavailable/);

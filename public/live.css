@@ -6,7 +6,7 @@
 .identity-field { display:flex; align-items:center; gap:8px; max-width:100%; }
 .identity-row label { font-weight:600; color:#46544c; }
 .identity-row select { padding:7px 28px 7px 10px; font-size:12px; }
-#location { max-width:210px; }
+#location { max-width:290px; }
 #identity-hint { color:#626b67; line-height:1.5; }
 .command-options { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; margin-top:9px; font-size:12px; color:#626b67; }
 .command-options label { display:flex; gap:6px; align-items:center; }

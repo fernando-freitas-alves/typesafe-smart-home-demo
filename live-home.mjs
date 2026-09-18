@@ -5,6 +5,19 @@ const attributes = ['brightness', 'supported_color_modes', 'supported_features',
 export const liveIcons = { light: '💡', fan: '🌀', thermostat: '🌡️', cover: '🪟', speaker: '🔊', appliance: '🔌', lock: '🔒', sensor: '◉' };
 export const kindLabels = { light: 'Lights', fan: 'Fans', thermostat: 'Climate', cover: 'Covers', speaker: 'Media', appliance: 'Switches', lock: 'Locks', sensor: 'Sensors' };
 
+const subspaces = [
+  { key: 'bathroom', name: 'bathroom', pattern: /\b(?:bathroom|washroom|banheiro|lavabo)\b/i },
+  { key: 'closet', name: 'closet', pattern: /\b(?:closet|dressing room)\b/i },
+];
+const plainName = name => name.normalize('NFD').replace(/\p{M}/gu, '');
+
+function physicalRoom(areaId, areaName, name, aliases) {
+  // Some HA areas contain a main room and adjoining spaces. Keep HA untouched;
+  // only separate spaces explicitly named by their entities, never fixture types.
+  const subspace = subspaces.find(space => !space.pattern.test(plainName(areaName)) && space.pattern.test(plainName([name, ...aliases].join(' '))));
+  return subspace ? { id: `${areaId}__space_${subspace.key}`, name: `${areaName} · ${subspace.name}`, space: subspace.key } : { id: areaId, name: areaName, space: 'main' };
+}
+
 export function buildLiveInventory(raw, { haSwitchEntities = [] } = {}) {
   const registry = new Map(raw.entities.map(e => [e.entity_id, e]));
   const hardware = new Map(raw.devices.map(d => [d.id, d]));
@@ -19,18 +32,25 @@ export function buildLiveInventory(raw, { haSwitchEntities = [] } = {}) {
     const name = entry?.name || state.attributes.friendly_name || state.entity_id;
     if (maintenance.test(name + ' ' + state.entity_id)) continue;
     if (kind === 'sensor' && !sensorClasses.has(state.attributes.device_class)) continue;
-    const room = entry?.area_id || device?.area_id || 'unassigned';
+    const areaId = entry?.area_id || device?.area_id || 'unassigned';
+    const areaName = areaNames.get(areaId) || 'Unassigned';
+    const aliases = entry?.aliases || [];
+    const space = areaId === 'unassigned' ? { id: areaId, name: areaName, space: 'main' } : physicalRoom(areaId, areaName, name, aliases);
     const attrs = Object.fromEntries(attributes.filter(key => state.attributes[key] !== undefined).map(key => [key, state.attributes[key]]));
     const readOnly = kind === 'sensor' || kind === 'lock' || (domain === 'switch' && !haSwitchEntities.includes(state.entity_id));
     const available = !['unknown', 'unavailable'].includes(state.state);
-    devices.push({ entity_id: state.entity_id, id: state.entity_id.replace('.', '__'), domain, kind, name, room,
-      roomName: areaNames.get(room) || 'Unassigned', aliases: entry?.aliases || [], state: state.state, attributes: attrs,
+    devices.push({ entity_id: state.entity_id, id: state.entity_id.replace('.', '__'), domain, kind, name, room: space.id,
+      roomName: space.name, areaId, areaName, space: space.space, aliases, state: state.state, attributes: attrs,
       temperatureUnit: raw.temperatureUnit, available, readOnly,
       readOnlyReason: kind === 'sensor' ? 'Sensor · read only' : kind === 'lock' ? 'Locks are read only on this page.' : readOnly ? 'Switch control is not enabled in the local configuration.' : '',
       override: overrides.get(state.entity_id) || null });
   }
+  const byId = new Map(devices.map(d => [d.entity_id, d]));
+  for (const device of devices) if (Array.isArray(device.attributes.entity_id)) {
+    device.groupRooms = [...new Set(device.attributes.entity_id.map(id => byId.get(id)?.room || 'unknown'))];
+  }
   devices.sort((a, b) => a.roomName.localeCompare(b.roomName) || a.name.localeCompare(b.name));
-  return { devices, rooms: [...new Map(devices.map(d => [d.room, { id: d.room, name: d.roomName }])).values()],
+  return { devices, rooms: [...new Map(devices.map(d => [d.room, { id: d.room, name: d.roomName, area: { id: d.areaId, name: d.areaName }, space: d.space }])).values()],
     updatedAt: new Date().toISOString(), counts: { total: devices.length, controllable: devices.filter(d => !d.readOnly).length, unavailable: devices.filter(d => !d.available).length } };
 }
 

@@ -34,6 +34,8 @@ The server reads `TYPESAFE_API_KEY` from the root `.env`. It rereads configurati
 
 **Context:** select **I am** and **Where I am**. Both go to Jev with every request, even without current device states. “My office” / “meu escritório” uses the selected person's HA office; “here” / “aqui” uses their location. **Someone else** has no personal office. Choices stay in this browser; changing either clears the preview. These are preferences, not a login or automatic location tracking.
 
+**Room scope:** “turn on the lights” defaults to your exact location. Bathrooms and closets are app-only spaces within the existing HA area, detected from device names. Jev receives both the parent `area` and the `space` (main/bathroom/closet); no new HA rooms are needed. Name another space to override your location, or say “all lights throughout the house”. Without a location, unnamed-room commands ask you to choose one. Presence sensors do not automatically identify a person or change the selection.
+
 **Supported:** lights, fans, climate modes/temperatures, covers, media controls, and selected sensors. Hidden, disabled, and maintenance entities are filtered out. Unavailable devices cannot be controlled. Locks are read-only; switches require an explicit `HA_SWITCH_ENTITIES` allowlist. Standard HA service calls preserve existing HA automation and lighting-override behavior.
 
 **Before applying:** previews expire after 2 minutes and are rejected if target states changed. Actions run once, stop on failure, and report observed states; physical commands are never automatically retried. A failed batch may have partially executed.

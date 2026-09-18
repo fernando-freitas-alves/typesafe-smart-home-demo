@@ -74,7 +74,7 @@ export function parseSplitCommands(text) {
   return commands.map(command => command.trim());
 }
 
-const visitorContext = user => user ? ` The visitor selected this context in the UI (a preference, not authenticated identity): ${JSON.stringify(user)}. Use office for my office / meu escritório and location for here / this room / aqui. Do not infer missing values. Preserve explicitly named rooms even if they differ from the visitor's location.` : '';
+const visitorContext = user => user ? ` The visitor selected this context in the UI (a preference, not authenticated identity): ${JSON.stringify(user)}. Unqualified device requests such as turn on the lights or all lights off refer to location, just like here / this room / aqui. Use office for my office / meu escritório. Office and office bathroom are separate physical spaces; preserve bathroom and closet qualifiers. Only explicit whole-home wording means the whole home. Do not infer missing values. Preserve explicitly named rooms even if they differ from the visitor's location.` : '';
 
 export async function splitCommand(command, signal, user) {
   if (!config().anthropicKey) {

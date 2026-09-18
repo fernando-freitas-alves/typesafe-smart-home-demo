@@ -7,17 +7,19 @@ import { identityProfile, validatePersonalReferences } from './live-identity.mjs
 import { buildLiveInventory, liveLabel, deviceFingerprint, validateLiveService, serviceLabel, serviceObserved } from './live-home.mjs';
 
 const choice = (instructions, criteria) => ({ type: 'choice', instructions, criteria });
-const roomTranslation = name => name.replace(/living room/gi, 'sala de estar').replace(/dining room/gi, 'sala de jantar').replace(/bedroom/gi, 'quarto').replace(/office/gi, 'escritório').replace(/kitchen/gi, 'cozinha').replace(/terrace/gi, 'varanda').replace(/laundry/gi, 'lavanderia').replace(/corridor/gi, 'corredor');
+const roomTranslation = name => name.replace(/living room/gi, 'sala de estar').replace(/dining room/gi, 'sala de jantar').replace(/bedroom/gi, 'quarto').replace(/office/gi, 'escritório').replace(/bathroom/gi, 'banheiro').replace(/kitchen/gi, 'cozinha').replace(/terrace/gi, 'varanda').replace(/laundry/gi, 'lavanderia').replace(/corridor/gi, 'corredor');
+const explicitWholeHome = command => /\b(?:whole|entire)\s+(?:house|home|apartment)\b|\b(?:throughout|across|in)\s+(?:the\s+)?(?:house|home|apartment)\b|\b(?:house|home)[ -]wide\b|\beverywhere\b|\b(?:toda\s+(?:a\s+)?casa|todo\s+(?:o\s+)?apartamento|(?:casa|apartamento)\s+(?:tod[oa]|inteir[oa]))\b/i.test(command);
 export function buildLiveQuestions(devices) {
   const questions = buildQuestions(devices);
   questions.intent.criteria.unsupported_request = 'Scheduling future actions, changing device configuration, firmware, safety settings or automations, or requesting unsupported actions.';
   questions.device_type.criteria = { ...questions.device_type.criteria, cover: 'Windows, blinds, curtains and shades', sensor: 'Temperature, humidity, battery, presence and other sensor readings' };
-  questions.scope = choice('Does the request identify one named device, every device of a kind in one room, or a whole-house group?', {
-    specific_device: 'One named device, including a light qualified as ambient, accent, mirror, sink, ceiling, or bedside. A room name plus a specific device name is still ONE device. Examples: office ambient light, kitchen sink light, bedroom AC.',
-    area: 'A room-wide GROUP, such as kitchen lights or all fans in the office, with no individual device qualifier. Personal references use user.office for my office and user.location for here or this room. Do not choose this for ambient light, accent light, sink light, or other specifically named fixtures.',
-    whole_house: 'Every matching device across the home, or an unqualified plural group such as all lights or which lights are on.',
+  questions.scope = choice('Does the request target a specific device, an explicitly named room, the current location, or explicitly the whole home?', {
+    specific_device: 'One named device, including a light qualified as ambient, accent, mirror, sink, ceiling, or bedside. An unqualified fixture name uses user.location to distinguish identical names in different spaces. Examples: office ambient light, kitchen sink light, bedroom AC.',
+    area: 'A GROUP in an explicitly named room, such as kitchen lights or all lights in my office. Use user.office for my office. The office and its bathroom are SEPARATE rooms. A bathroom qualifier refers to the bathroom room, not a single fixture.',
+    current_location: 'A group in the exact user.location.id. user.location.area is the parent HA area and user.location.space identifies main, bathroom, or closet within it. Use this for turn on the lights, all lights on, lights off, which lights are on, or lights here / this room / aqui when no other room or whole home is explicitly named. Even all lights means this precise space, not its parent area or the home. With no location, still choose this so the app asks for one.',
+    whole_house: 'ONLY an explicit whole-home request, such as all lights throughout the house, whole home, everywhere, or casa toda. Never choose this just because a request says lights or all lights.',
   });
-  questions.room = choice('Which room is the user referring to? Match English or Portuguese room names. Use user.office for my office / meu escritório, and user.location for here / this room / aqui. Explicit room names take precedence over the current location. A location alone does not limit an explicit whole-house request.', { ...Object.fromEntries(devices.map(d => [d.room, `${d.roomName}; ${roomTranslation(d.roomName)}`])), none_of_these: 'The room is absent or unspecified; do not substitute another room' });
+  questions.room = choice('Which physical room is requested? Match English or Portuguese names. Use user.office for my office / meu escritório; its bathroom is a separate listed room. Use user.location for an unnamed room, here / this room / aqui. Explicit room names take precedence. Office lights exclude office bathroom lights. Bathroom lights exclude the adjoining office. Do not merge rooms that share an HA area.', { ...Object.fromEntries(devices.map(d => [d.room, `${d.roomName}; ${roomTranslation(d.roomName)}`])), none_of_these: 'The room is absent or unspecified; do not substitute another room' });
   questions.device = choice('Which specific device should receive the request? Use user.office and user.location to resolve personal room references; explicit room names take precedence.', { ...Object.fromEntries(devices.map(d => [d.id, `${d.name}; ${d.kind}; room: ${d.roomName}${d.aliases?.length ? '; aliases: ' + d.aliases.join(', ') : ''}`])), none_of_these: 'No single device matches the requested name and room; never guess an absent device' });
   questions.light_action.criteria.dim = 'Set a specific brightness percentage or dim the light';
   questions.thermostat_action.criteria = { ...questions.thermostat_action.criteria, set_temperature: 'Set a numeric target temperature without changing HVAC mode' };
@@ -38,7 +40,7 @@ function targetTemperature(command, device) {
   const step = device.attributes.target_temp_step || 0.5;
   return Math.round(value / step) * step;
 }
-export function planLiveDecision(stage, devices) {
+export function planLiveDecision(stage, devices, user = {}) {
   const a = stage.answers; const intent = a.intent.choice; const used = ['intent'];
   if (intent === 'unsupported_request') throw new Error('This page supports immediate home controls and state questions. Schedules, configuration changes, and automations are not supported.');
   if (intent === 'information_request') return { intent, used, targets: [], services: [] };
@@ -46,6 +48,9 @@ export function planLiveDecision(stage, devices) {
   if (a.compound.noul >= 0.5) return { intent: 'compound', used, targets: [], services: [] };
   used.push('scope', 'device_type');
   const kind = a.device_type.choice; const scope = a.scope.choice;
+  if (scope === 'whole_house' && !explicitWholeHome(stage.command)) throw new Error('Name a room or select Where I am. For the whole home, say “all lights throughout the house”.');
+  if (scope === 'current_location' && !user.location) throw new Error('Select Where I am or name a room, then preview again.');
+  const targetRoom = scope === 'current_location' ? user.location.id : scope === 'area' ? a.room.choice : null;
   let targets = devices.filter(d => d.kind === kind);
   // HA exposes room temperature on climate entities as well as standalone sensors.
   if (intent === 'smarthome_query' && kind === 'sensor' && a.sensor_type.choice === 'temperature') {
@@ -53,7 +58,10 @@ export function planLiveDecision(stage, devices) {
     targets = devices.filter(d => (d.kind === 'sensor' && d.attributes.device_class === 'temperature') || (d.kind === 'thermostat' && Number.isFinite(d.attributes.current_temperature)));
   }
   if (scope === 'specific_device') { used.push('device'); targets = targets.filter(d => d.id === a.device.choice); }
-  else if (scope === 'area') { used.push('room'); targets = targets.filter(d => d.room === a.room.choice); }
+  else if (targetRoom) {
+    if (scope === 'area') used.push('room');
+    targets = targets.filter(d => d.room === targetRoom && (!d.groupRooms || d.groupRooms.every(room => room === targetRoom)));
+  }
   if (kind === 'sensor' && scope !== 'specific_device') {
     used.push('sensor_type'); const type = a.sensor_type.choice;
     const classes = { occupancy: ['occupancy', 'motion'], opening: ['opening', 'door', 'window'] }[type] || [type];
@@ -122,13 +130,13 @@ export class LiveHome {
       const questions = buildLiveQuestions(devices);
       const evaluate = part => { validatePersonalReferences(part, user, room); return this.dependencies.evaluate(part, devices, context, signal, questions, user); };
       const initial = await evaluate(command.trim());
-      const first = planLiveDecision(initial, devices);
+      const first = planLiveDecision(initial, devices, user);
       stages.push({ ...initial, used: first.used }); plans = [first];
       if (first.intent === 'information_request') stages.push(await this.dependencies.answerQuestion(command, signal, user));
       else if (first.intent === 'compound') {
         const split = await this.dependencies.splitCommand(command, signal, user); stages.push(split);
         const time = performance.now(); const evaluated = await Promise.all(split.commands.map(evaluate)); const parallelDurationMs = Math.round(performance.now() - time);
-        plans = evaluated.map(stage => planLiveDecision(stage, devices));
+        plans = evaluated.map(stage => planLiveDecision(stage, devices, user));
         if (plans.some(p => !['smarthome_query', 'smarthome_command'].includes(p.intent))) throw new Error('A sub-command needs clarification. Send it separately. No devices were changed.');
         stages.push(...evaluated.map((stage, i) => ({ ...stage, used: plans[i].used, parallel: true, parallelDurationMs })));
       }

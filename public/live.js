@@ -28,13 +28,13 @@ async function api(path, data) {
 function invalidate() { pending = null; $('action-preview').hidden = true; $('action-preview').replaceChildren(); }
 function updateIdentityHint() {
   const person = identityProfile($('identity').value, home.rooms);
-  $('identity-hint').textContent = `Jev context · ${person.office ? `“My office” → ${person.office.name}` : person.id === 'other' ? 'Name a room, or select where you are to use “here”.' : home.rooms.length ? 'Office not found. Name a room in your request.' : 'Finding your office…'}`;
+  const location = home.rooms.find(room => room.id === savedLocation);
+  $('identity-hint').textContent = location ? `“Turn on the lights” → ${location.name}` : person.office ? `“My office” → ${person.office.name} · Select where you are for “the lights”.` : 'Select where you are, or name a room in your request.';
 }
 function updateHome(next) {
   const room = $('room-filter').value; const signature = JSON.stringify(next.devices);
   const roomsChanged = JSON.stringify(home.rooms) !== JSON.stringify(next.rooms);
   home = next; connected = !next.stale;
-  updateIdentityHint();
   if (roomsChanged) {
     $('room-filter').replaceChildren(el('option', '', 'All rooms'));
     $('room-filter').firstChild.value = '';
@@ -46,6 +46,7 @@ function updateHome(next) {
     if (home.rooms.some(r => r.id === savedLocation)) $('location').value = savedLocation;
     else if (savedLocation) { savedLocation = ''; invalidate(); }
   }
+  updateIdentityHint();
   $('home-status').textContent = connected ? `Live · refreshed ${new Date(next.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Disconnected · showing last read';
   $('home-status').classList.toggle('disconnected', !connected);
   if (signature !== homeSignature || roomsChanged) { homeSignature = signature; renderHome(); }
@@ -87,6 +88,7 @@ function showResult(result) {
   if (result.planId) {
     pending = result;
     const card = el('section', 'preview-card'); card.append(el('h3', '', 'Review these changes'), el('p', '', 'Nothing has changed yet. Apply sends these actions to your real devices.'));
+    card.append(el('p', 'preview-targets', `Target: ${[...new Set(result.actions.map(action => action.roomName))].join(' · ')}`));
     if (result.skipped?.length) card.append(el('p', '', `Skipped unavailable devices: ${result.skipped.map(d => `${d.name} (${d.roomName})`).join(', ')}.`));
     const list = el('ol');
     for (const action of result.actions) { const li = el('li', '', action.label); li.append(el('span', 'preview-before', `Current: ${action.before}`)); list.append(li); }
@@ -182,7 +184,7 @@ $('identity').addEventListener('change', () => {
   announce(`Selected ${$('identity').selectedOptions[0].textContent}. ${$('identity-hint').textContent} Preview again to use this selection.`);
 });
 $('location').addEventListener('change', () => {
-  invalidate(); error(''); savedLocation = $('location').value;
+  invalidate(); error(''); savedLocation = $('location').value; updateIdentityHint();
   try { localStorage.setItem(locationStorageKey, savedLocation); } catch { /* The current selection still works when storage is unavailable. */ }
   announce(`Location: ${$('location').selectedOptions[0].textContent}. Preview again to use this selection.`);
 });
@@ -191,7 +193,7 @@ $('search').addEventListener('input', () => renderHome()); $('kind-filter').addE
 $('refresh').addEventListener('click', () => refreshHome());
 $('close-device').addEventListener('click', () => $('device-dialog').close());
 $('device-dialog').addEventListener('close', () => [...$('rooms').querySelectorAll('[data-entity]')].find(n => n.dataset.entity === selected)?.focus());
-for (const command of ['Turn on all my office lights', 'Which lights are on?', 'What is the temperature?', 'Close the blinds']) {
+for (const command of ['Turn on the lights', 'Which lights are on?', 'What is the temperature?', 'Close the blinds']) {
   const button = el('button', 'example', command); button.addEventListener('click', () => { $('command').value = command; invalidate(); $('command').focus(); }); $('examples').append(button);
 }
 api('/api/config').then(config => { $('connection').textContent = config.typesafe ? `TypeSafe · ${config.llm}` : 'TypeSafe key missing · manual controls available'; }).catch(() => { $('connection').textContent = 'API unavailable'; });

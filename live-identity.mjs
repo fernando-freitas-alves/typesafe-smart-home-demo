@@ -25,7 +25,7 @@ export function validatePersonalReferences(command, user, room = '') {
     if (!user.office) throw new Error(!user.name
       ? 'To use “my office”, choose Fernando or Flavia. Otherwise, name the room in your request.'
       : `Could not identify one office for ${user.name}. Name the room in your request.`);
-    if (room && room !== user.office.id) throw new Error(`“My office” means ${user.office.name}. Select that room or All rooms, then preview again.`);
+    if (room && room !== user.office.id && !room.startsWith(`${user.office.id}__space_`)) throw new Error(`“My office” means ${user.office.name}. Select that room or All rooms, then preview again.`);
   }
   if (/\b(?:here|this room|aqui|neste c[oô]modo|nesse c[oô]modo)\b/i.test(command)) {
     if (!user.location) throw new Error('To use “here” or “this room”, select Where I am. Otherwise, name the room in your request.');
