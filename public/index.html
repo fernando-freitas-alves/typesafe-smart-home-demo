@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <title>TypeSafe Smart Home Demo</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#smart-home">Skip to smart home</a>
+  <main class="app">
+    <section class="command-bar" aria-label="Smart home assistant">
+      <h1 class="sr-only">TypeSafe Smart Home Demo</h1>
+      <form id="command-form">
+        <label class="sr-only" for="command">Command or question</label>
+        <input id="command" name="command" autocomplete="off" placeholder='Try: “Turn on the living room lights”…' maxlength="1500" required>
+        <label class="sr-only" for="context">Device context</label>
+        <select id="context" name="context" title="Include current mock device states in TypeSafe’s evaluation">
+          <option value="none">No Device Context</option>
+          <option value="devices">Device Context</option>
+        </select>
+        <button class="send" id="send" type="submit">Send</button>
+      </form>
+      <div id="examples" class="examples" aria-label="Example requests"></div>
+      <div id="error" role="alert" hidden></div>
+    </section>
+    <div class="workspace">
+      <section id="smart-home" class="home-panel" aria-labelledby="home-heading">
+        <header class="panel-header home-header">
+          <h2 id="home-heading">Smart Home</h2>
+          <div class="home-actions">
+            <label for="preset" class="sr-only">Mock home layout</label>
+            <select id="preset" name="preset"><option>1BR (10 devices)</option></select>
+            <button id="reset" class="quiet">Reset</button>
+          </div>
+        </header>
+        <div id="rooms" class="rooms"></div>
+        <footer class="home-footer">
+          <span>Mock Home Assistant</span>
+          <span id="connection">Checking API…</span>
+        </footer>
+      </section>
+      <section class="trace-panel" aria-labelledby="trace-heading">
+        <header class="panel-header trace-header">
+          <div class="trace-heading-row"><h2 id="trace-heading">Decision Trace</h2><button id="replay" class="icon-button" title="Run this request again" aria-label="Run this request again" hidden>↻</button></div>
+          <div id="request-label" class="request-label" hidden></div>
+          <div id="timing" class="timing" hidden></div>
+        </header>
+        <div id="trace-scroll" class="trace-scroll" tabindex="0" aria-label="Decision trace results">
+          <div id="history" class="history"></div>
+          <div id="trace"><p class="empty-state">Submit a request to see the decision trace</p></div>
+        </div>
+      </section>
+    </div>
+  </main>
+  <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
+  <dialog id="device-dialog" aria-labelledby="device-title">
+    <header><h2 id="device-title">Device</h2><button id="close-device" class="icon-button" aria-label="Close device details">×</button></header>
+    <p id="device-entity" class="mono"></p>
+    <div id="device-controls"></div>
+    <details><summary>Mock Home Assistant state</summary><pre id="device-json"></pre></details>
+    <p class="dialog-note">Changes affect this simulated home only.</p>
+  </dialog>
+</body>
+</html>
