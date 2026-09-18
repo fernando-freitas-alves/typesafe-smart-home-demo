@@ -4,7 +4,7 @@
   <img width="1712" height="1818" alt="image" src="https://github.com/user-attachments/assets/d179c860-c4c0-4bb3-8492-06827f589452" />
 </p>
 
-A local recreation of the interface and execution patterns in [Allie Laabs’s TypeSafe Smart Home Demo](https://www.loom.com/share/18c4dbcf8db546dfb2d7f2ef018e78e4), with live TypeSafe evaluation, a mocked demo, and a separate page for real Home Assistant devices.
+A local recreation of the interface and execution patterns in [Allie Laabs’s TypeSafe Smart Home Demo](https://www.loom.com/share/18c4dbcf8db546dfb2d7f2ef018e78e4), with live TypeSafe evaluation, a mocked demo, a diagnostic page for real devices, and a native Home Assistant chat panel.
 
 https://github.com/user-attachments/assets/c88350a5-4b4b-4f89-916d-cd8ff27e7eca
 
@@ -26,7 +26,18 @@ Open [localhost:5188](http://localhost:5188). No build step is needed. To choose
 
 The server reads `TYPESAFE_API_KEY` from the root `.env`. It rereads configuration for each request, so adding `ANTHROPIC_API_KEY` activates Claude Haiku without restarting. The optional variables and model defaults are in [`.env.example`](.env.example). Existing environment variables take precedence over the file. Keep `.env` local; it is excluded from Git. Requests send command text, and optionally the simulated device states, to TypeSafe. With an Anthropic key, splitting and general answers also send the command text to Anthropic. These APIs may incur usage charges. Keys remain on the local server and are never sent to the browser.
 
-## Connect your real home
+## Chat inside Home Assistant
+
+**HA → Home chat** provides a ChatGPT-style conversation using HA’s login and theme. It works through the same local or remote HA address, with no laptop server needed.
+
+- Automatic HA identity; manual room/bathroom selection in each chat.
+- Saved, account-specific threads in a sidebar that starts collapsed.
+- Collapsed tool activity, action-selection forms, and follow-up messages.
+- Review changes, then click **Apply selected** or reply **yes**. Typing a revision replaces the pending approval.
+
+[Install, run, update, and recover the native panel →](deployment/README.md)
+
+## Connect your real home (local diagnostic page)
 
 Complete **Run** above first. The computer running the demo must be able to reach your HA instance.
 
