@@ -3,7 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import * as providers from './providers.mjs';
 import { buildQuestions } from './questions.mjs';
 import { HomeAssistantClient } from './ha-client.mjs';
-import { identityProfile, validatePersonalReferences } from './live-identity.mjs';
+import { identityProfile, identityForName, validatePersonalReferences } from './live-identity.mjs';
 import { buildLiveInventory, liveLabel, deviceFingerprint, validateLiveService, serviceLabel, serviceObserved } from './live-home.mjs';
 
 const choice = (instructions, criteria) => ({ type: 'choice', instructions, criteria });
@@ -106,9 +106,10 @@ export function planLiveDecision(stage, devices, user = {}) {
 }
 
 export class LiveHome {
-  constructor({ client, dependencies = providers, settings = providers.config, settleMs = 1000, now = Date.now } = {}) {
+  constructor({ client, dependencies = providers, settings = providers.config, settleMs = 1000, now = Date.now, actor = null } = {}) {
     this.client = client || new HomeAssistantClient({ settings }); this.dependencies = dependencies; this.settings = settings; this.settleMs = settleMs; this.now = now;
     this.pending = new Map(); this.applying = false;
+    this.actor = actor;
   }
   async snapshot(signal) { return buildLiveInventory(await this.client.inventory(signal), this.settings()); }
   async preview(input, signal) {
@@ -119,8 +120,8 @@ export class LiveHome {
     const started = performance.now(); const snapshot = await this.snapshot(signal);
     if (room && !snapshot.rooms.some(r => r.id === room)) throw new Error('The selected room is no longer available. Refresh the home.');
     if (typeof location !== 'string' || (location && !snapshot.rooms.some(r => r.id === location))) throw new Error('Your selected location is no longer available. Select Where I am again.');
-    const person = identityProfile(identity, snapshot.rooms);
-    const user = { name: identity === 'other' ? null : person.name, office: person.office, location: snapshot.rooms.find(r => r.id === location) || null };
+    const person = identityProfile(this.actor ? identityForName(this.actor.name) : identity, snapshot.rooms);
+    const user = { name: this.actor ? this.actor.name : identity === 'other' ? null : person.name, office: person.office, location: snapshot.rooms.find(r => r.id === location) || null };
     const devices = room ? snapshot.devices.filter(d => d.room === room) : snapshot.devices;
     let plans, stages = [];
     if (manual) {
@@ -159,10 +160,16 @@ export class LiveHome {
     }
     return result;
   }
-  async apply(planId, signal) {
+  async apply(planId, signal, selected) {
     if (this.applying) throw new Error('Another command is running. Wait for its result.');
     const plan = this.pending.get(planId);
     if (!plan || plan.expires <= this.now()) { this.pending.delete(planId); throw new Error('This preview expired or was already applied. Preview the request again.'); }
+    if (selected !== undefined) {
+      if (!Array.isArray(selected) || !selected.length || new Set(selected).size !== selected.length || selected.some(index => !Number.isInteger(index) || index < 0 || index >= plan.services.length)) throw new Error('Select at least one valid action from this preview.');
+      const indices = new Set(selected);
+      plan.services = plan.services.filter((_, index) => indices.has(index));
+      plan.result.actions = plan.result.actions.filter((_, index) => indices.has(index));
+    }
     this.applying = true;
     try {
       const current = await this.snapshot(signal);

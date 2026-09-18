@@ -6,3 +6,9 @@ node_modules/
 coverage/
 *.log
 .DS_Store
+
+# HA bridge runtime data and secrets
+**/runtime.env
+deployment/data/
+deployment/app/
+__pycache__/

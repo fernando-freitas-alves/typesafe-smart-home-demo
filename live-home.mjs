@@ -37,12 +37,13 @@ export function buildLiveInventory(raw, { haSwitchEntities = [] } = {}) {
     const aliases = entry?.aliases || [];
     const space = areaId === 'unassigned' ? { id: areaId, name: areaName, space: 'main' } : physicalRoom(areaId, areaName, name, aliases);
     const attrs = Object.fromEntries(attributes.filter(key => state.attributes[key] !== undefined).map(key => [key, state.attributes[key]]));
-    const readOnly = kind === 'sensor' || kind === 'lock' || (domain === 'switch' && !haSwitchEntities.includes(state.entity_id));
+    const denied = raw.controlEntities && !raw.controlEntities.includes(state.entity_id);
+    const readOnly = denied || kind === 'sensor' || kind === 'lock' || (domain === 'switch' && !haSwitchEntities.includes(state.entity_id));
     const available = !['unknown', 'unavailable'].includes(state.state);
     devices.push({ entity_id: state.entity_id, id: state.entity_id.replace('.', '__'), domain, kind, name, room: space.id,
       roomName: space.name, areaId, areaName, space: space.space, aliases, state: state.state, attributes: attrs,
       temperatureUnit: raw.temperatureUnit, available, readOnly,
-      readOnlyReason: kind === 'sensor' ? 'Sensor · read only' : kind === 'lock' ? 'Locks are read only on this page.' : readOnly ? 'Switch control is not enabled in the local configuration.' : '',
+      readOnlyReason: denied ? 'Your Home Assistant account cannot control this device.' : kind === 'sensor' ? 'Sensor · read only' : kind === 'lock' ? 'Locks are read only on this page.' : readOnly ? 'Switch control is not enabled in the local configuration.' : '',
       override: overrides.get(state.entity_id) || null });
   }
   const byId = new Map(devices.map(d => [d.entity_id, d]));

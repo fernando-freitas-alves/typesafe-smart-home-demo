@@ -4,6 +4,11 @@ export const identities = [
   { id: 'other', name: 'Someone else' },
 ];
 
+export function identityForName(name) {
+  const first = String(name || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().split(/\s+/)[0];
+  return identities.some(person => person.id === first && first !== 'other') ? first : 'other';
+}
+
 function roomWords(name) {
   return name.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
     .replace(/['’]s\b/g, '').split(/[^a-z0-9]+/)
