@@ -1,0 +1,10 @@
+{
+  "domain": "typesafe_chat",
+  "name": "Home chat",
+  "version": "1.0.0",
+  "documentation": "https://github.com/fernando-freitas-alves/typesafe-smart-home-demo",
+  "codeowners": ["@fernando-freitas-alves"],
+  "dependencies": ["frontend", "http", "panel_custom"],
+  "iot_class": "cloud_polling",
+  "requirements": []
+}
