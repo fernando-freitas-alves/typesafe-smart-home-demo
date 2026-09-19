@@ -87,8 +87,13 @@ button,select,summary{touch-action:manipulation}.thread{content-visibility:auto;
 .model-hint,.model-error{font-size:11px;line-height:1.5;margin:8px 16px;color:var(--chat-muted)}.model-error{color:var(--error-color,#db4437)}.model-menu-footer{border-top:1px solid var(--chat-line);margin:5px 0 0;padding:10px 16px;flex-shrink:0}
 @media(max-width:700px){.model-picker>summary{min-height:40px}.model-menu{max-height:calc(100dvh - 250px)}}
 
-/* Follow keyboard focus panning as well as resizing, without scrolling HA. */
-.layout{transform:translateY(var(--chat-viewport-shift,0px))}
+/* Keep a stable dashboard footprint. Only the fixed chat frame follows the
+   keyboard; moving it must never add scrollable space to HA's page. */
+:host,:host([dashboard]){height:max(0px,calc(100dvh - var(--chat-page-top,0px)));overflow-anchor:none}
+.layout{position:fixed;top:var(--chat-top,0px);left:var(--chat-left,0px);width:var(--chat-width,100%);transform:none;overscroll-behavior:none}
+main{min-height:0}
+.scroll-area,.sidebar nav,.model-options,textarea,.trace-payload pre,.ai-settings{overscroll-behavior:none}
+.conversation.empty{height:auto;min-height:100%;justify-content:center}
 textarea{max-height:min(180px,max(48px,calc(var(--chat-viewport,100dvh) - 230px)))}
 .model-menu{max-height:min(480px,max(120px,calc(var(--chat-viewport,100dvh) - 150px)))}
 @media(max-width:700px),(pointer:coarse){textarea,input,select{font-size:16px}}

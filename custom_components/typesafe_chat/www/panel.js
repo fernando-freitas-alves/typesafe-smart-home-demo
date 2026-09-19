@@ -1,7 +1,7 @@
 import { openAiSettings } from './chat-settings.js?v=2';
 import { renderModelPicker, bindModelPicker } from './chat-model-picker.js?v=1';
 import { createChatRequest } from './chat-client.js?v=1';
-import { chatViewportFrame } from './chat-viewport.js?v=1';
+import { chatViewportFrame, chatViewportAnchor, containChatScroll } from './chat-viewport.js?v=2';
 import { renderHistoryList } from './chat-history.js?v=1';
 import { renderDeviceCollections, renderReviewAction, bindDeviceControls } from './chat-components.js?v=1';
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -11,7 +11,7 @@ const statuses = { applied: 'Sent to Home Assistant', revised: 'Replaced by your
 export class HomeChatPanel extends HTMLElement {
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
-    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=13', import.meta.url); stylesheet.onload = () => { this.onResize(); this.scrollBottom(); };
+    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=14', import.meta.url); stylesheet.onload = () => { this.onResize(); this.scrollBottom(); };
     this.view = document.createElement('div'); this.view.style.display = 'contents'; this.shadowRoot.append(stylesheet, this.view);
     this.sidebar = false; this.historyMode = 'chats'; this.historyQuery = ''; this.historyNotice = null; this.busy = false; this.data = null; this.draft = ''; this.error = ''; this.started = false; this.selections = new Map(); this.toolDetails = new Map(); this.componentValues = new Map();
     this.modelChoices = new Map(); this.modelState = null; this.modelError = ''; this.modelsLoading = false;
@@ -22,8 +22,9 @@ export class HomeChatPanel extends HTMLElement {
         this.viewportFrame = 0;
         if (!this.isConnected) return;
         const viewport = window.visualViewport;
-        const frame = chatViewportFrame({ height: viewport?.height || window.innerHeight, offsetTop: viewport?.offsetTop || 0, hostTop: this.getBoundingClientRect().top });
-        for (const [key, value] of [['--chat-viewport', frame.height], ['--chat-viewport-shift', frame.shift]]) {
+        const anchor = chatViewportAnchor(this);
+        const frame = chatViewportFrame({ height: viewport?.height || window.innerHeight, offsetTop: viewport?.offsetTop || 0, anchorTop: anchor.top });
+        for (const [key, value] of [['--chat-viewport', frame.height], ['--chat-top', frame.top], ['--chat-left', anchor.left], ['--chat-width', anchor.width], ['--chat-page-top', anchor.top]]) {
           const px = `${value}px`;
           if (this.style.getPropertyValue(key) !== px) this.style.setProperty(key, px);
         }
@@ -47,6 +48,7 @@ export class HomeChatPanel extends HTMLElement {
     window.addEventListener('scroll', this.onResize, true);
     this.shadowRoot.addEventListener('focusin', this.onResize);
     this.shadowRoot.addEventListener('focusout', this.onResize);
+    this.releaseScrollContainment = containChatScroll(this.shadowRoot);
     document.addEventListener('pointerdown', this.onModelOutside);
     if (this._hass && !this.started) this.start();
     this.expiryTimer = setInterval(() => this.expireForms(), 1000);
@@ -59,6 +61,7 @@ export class HomeChatPanel extends HTMLElement {
     window.visualViewport?.removeEventListener('scrollend', this.onResize);
     window.removeEventListener('resize', this.onResize); window.removeEventListener('scroll', this.onResize, true);
     this.shadowRoot.removeEventListener('focusin', this.onResize); this.shadowRoot.removeEventListener('focusout', this.onResize);
+    this.releaseScrollContainment?.();
     document.removeEventListener('pointerdown', this.onModelOutside);
   }
   updateAccountBadge() {
@@ -262,7 +265,7 @@ export class HomeChatPanel extends HTMLElement {
     });
     root.querySelector('[data-history-undo]')?.addEventListener('click', () => this.archiveThread(this.historyNotice.undoId, false));
     root.querySelectorAll('[data-location]').forEach(select => select.onchange = () => this.request('location', { location: select.value }));
-    root.querySelectorAll('[data-prompt]').forEach(button => button.onclick = () => { this.draft = button.dataset.prompt; this.render(); root.querySelector('textarea').focus(); });
+    root.querySelectorAll('[data-prompt]').forEach(button => button.onclick = () => { this.draft = button.dataset.prompt; this.render(); root.querySelector('textarea').focus({ preventScroll: true }); });
     root.querySelectorAll('[data-approval]').forEach(form => form.onsubmit = event => { event.preventDefault(); const selected = [...new FormData(form).getAll('selected')].map(Number); if (selected.length) this.request('apply', { messageId: form.dataset.approval, selected }); });
     root.querySelectorAll('[data-approval] input').forEach(input => input.onchange = () => { const form = input.closest('form'); this.selections.set(form.dataset.approval, [...new FormData(form).getAll('selected')].map(Number)); const submit = form.querySelector('[type="submit"]'); if (submit) submit.disabled = !form.querySelector('input:checked'); });
     root.querySelectorAll('[data-cancel]').forEach(button => button.onclick = () => this.request('cancel'));
