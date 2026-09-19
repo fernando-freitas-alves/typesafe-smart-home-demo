@@ -38,6 +38,16 @@ The motor-state field is the **last reported movement direction**, not proof the
 
 These motors do not have verified on-demand position reads, so no misleading `/get` control is advertised. A first installation may remain unknown until a fresh report, usually after movement. Once received, Zigbee2MQTT's normal state cache/MQTT integration supplies subsequent state; never seed a current position from an old log.
 
+### Position reporting during travel
+
+The 2026-09-19 investigation found endpoint reports, not continuous measured positions. For example, a 41% → 0% closing trip acknowledged the target immediately and reported DP8 about 22 seconds later, with no intermediate DP8 packets. The floorplan can animate a clearly labelled local estimate between reports; that estimate never becomes the converter's measured position.
+
+All five installed `_TZE284_q9xty0ad` motors use application version 80 and hardware version 1. Their endpoint 1 input clusters are 0x0004, 0x0005, 0xEF00, 0x0000 and 0xED00: **no standard Window Covering cluster (0x0102)** is advertised, so standard cover-attribute polling/reporting cannot simply be enabled.
+
+A single read-only Tuya `dataQuery` was tested on shade 4 at 05:30:53 UTC. It produced a `commandDataReport` containing **DP104, boolean false**, with no measured DP8 response in logs through 05:33:00. HA remained at its previous measured 21%, with no new position timestamp. The test sent no movement or configuration writes. DP104's meaning is unverified and it is neither mapped nor written by this converter.
+
+This does not establish that every possible firmware mechanism is unavailable, but it provides no basis for enabling periodic queries or promising live measurements. Keep `/get` unadvertised until a repeatable read actually returns DP8. Any further protocol work should capture raw reports during an authorized movement and verify a candidate read/reporting method before changing the production converter. The [upstream related `_TZE204` device](https://www.zigbee2mqtt.io/devices/TZE204_q9xty0ad.html) also documents position as unavailable through `/get`; it is a different variant, so our live evidence takes precedence.
+
 ## Evidence and troubleshooting
 
 - Live logs from this manufacturer variant contain actual DP8 reports (including 0, 64, and 100) and separate DP9 target acknowledgements.
