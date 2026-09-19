@@ -41,6 +41,12 @@ Bathrooms and closets remain app-only spaces inside the original HA area. Name o
 
 The generative UI connects Jev-selected device results to a fixed component catalog (`chat-components.mjs` → `www/chat-components.js`). Messages save versioned `components` alongside their text fallback. Values come from HA; no model-generated HTML or JavaScript is executed. Card actions are bound to the owning chat and entity, rechecked against current capabilities and permissions, then use the same preview/approval flow as typed requests.
 
+## Reuse the API for voice or other clients
+
+The panel uses **API v1** at `POST /api/typesafe_chat`. It shares conversation logic with voice clients: explicit conversation/device IDs, per-chat location, speech responses, structured follow-up questions, and persisted request IDs. Shared voice devices do not imply a known speaker. [Contract, OpenAPI schema, client library, and runnable transcript example →](../docs/chat-api.md)
+
+Actual microphones, STT/TTS, and an HA Assist adapter are future integrations; no audio hardware is configured by this setup.
+
 ## Data and access
 
 HA filters inventory by the signed-in user’s read permissions. Device calls use that user’s current HA token and must pass control permissions plus the app’s service allowlist. The bridge has no administrator-token fallback. HA tokens are held only during each request; model keys and bridge credentials stay server-side.

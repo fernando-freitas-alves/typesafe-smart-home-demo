@@ -38,6 +38,8 @@ The server reads `TYPESAFE_API_KEY` from the root `.env`. It rereads configurati
 
 [Install, run, update, and recover the native panel →](deployment/README.md)
 
+**Reusable API:** the page uses the same versioned conversation API available to future room voice devices. It returns speech, structured confirmations/location questions, components, and tool details. [API contract, client, and voice-adapter example →](docs/chat-api.md)
+
 ## Connect your real home (local diagnostic page)
 
 Complete **Run** above first. The computer running the demo must be able to reach your HA instance.

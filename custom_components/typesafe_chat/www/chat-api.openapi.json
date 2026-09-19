@@ -1,0 +1,1048 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Home chat conversation API",
+    "version": "1.0.0",
+    "description": "Shared HA web/voice text API. Account authentication is distinct from speaker identity. deviceId is routing context, not authentication. Audio/Assist transport is a future adapter."
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "The existing local or remote HA origin"
+    }
+  ],
+  "security": [
+    {
+      "haBearer": []
+    }
+  ],
+  "paths": {
+    "/api/typesafe_chat": {
+      "post": {
+        "operationId": "homeChat",
+        "summary": "Create, continue, inspect, or manage a conversation",
+        "description": "Retain the exact mutation payload and requestId for recovery. No automatic physical-action retries. One request at a time per account. See docs/chat-api.md for confirmation and recovery semantics.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/bootstrapRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/newRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/openRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/sendRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/applyRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/cancelRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/locationRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/renameRequest"
+                  },
+                  {
+                    "$ref": "#/components/schemas/archiveRequest"
+                  }
+                ]
+              },
+              "examples": {
+                "voiceConversation": {
+                  "value": {
+                    "apiVersion": 1,
+                    "op": "new",
+                    "requestId": "create-office-001",
+                    "client": {
+                      "kind": "voice",
+                      "deviceId": "office-microphone"
+                    },
+                    "location": "office__space_bathroom"
+                  }
+                },
+                "voiceConfirmation": {
+                  "value": {
+                    "apiVersion": 1,
+                    "op": "send",
+                    "requestId": "confirm-office-002",
+                    "threadId": "returned-thread-id",
+                    "client": {
+                      "kind": "voice",
+                      "deviceId": "office-microphone"
+                    },
+                    "text": "yes",
+                    "confirmationId": "returned-proposal-message-id"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Completed request or saved replay",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or operation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "HA authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "HA permissions denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Conversation unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Busy, context/confirmation mismatch, conflicting request ID, or uncertain outcome",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request capacity reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "HA-to-bridge transport unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "haBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "HA access token; identity and permissions come from HA, never request body names."
+      }
+    },
+    "schemas": {
+      "Client": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "web"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "voice"
+              },
+              "deviceId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[a-zA-Z0-9_.:-]+$"
+              }
+            },
+            "required": [
+              "kind",
+              "deviceId"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "ComponentAction": {
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "entityId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "action": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "value": {
+            "type": [
+              "string",
+              "number"
+            ]
+          }
+        },
+        "required": [
+          "messageId",
+          "entityId",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "Room": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "additionalProperties": true
+      },
+      "Elicitation": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "confirmation"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[a-zA-Z0-9_.:-]+$"
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "selected": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "actions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "entityId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[a-zA-Z0-9_.:-]+$"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "before": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "index",
+                    "entityId",
+                    "name",
+                    "location",
+                    "description",
+                    "before"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "type",
+              "id",
+              "expiresAt",
+              "selected",
+              "actions"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "location"
+              },
+              "options": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Room"
+                }
+              }
+            },
+            "required": [
+              "type",
+              "options"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "text"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "Reply": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "messageId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "text": {
+                "type": "string"
+              },
+              "speech": {
+                "type": "string",
+                "description": "Plain text for TTS. Empty on reads; no reply on replays."
+              },
+              "status": {
+                "enum": [
+                  "complete",
+                  "error",
+                  "awaiting_confirmation",
+                  "awaiting_location",
+                  "awaiting_reply",
+                  "archived"
+                ]
+              },
+              "continueConversation": {
+                "type": "boolean"
+              },
+              "elicitation": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Elicitation"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "version": {
+                      "const": 1
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "type"
+                  ],
+                  "additionalProperties": true
+                }
+              },
+              "tools": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            },
+            "required": [
+              "messageId",
+              "text",
+              "speech",
+              "status",
+              "continueConversation",
+              "elicitation",
+              "components",
+              "tools"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "Conversation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Exact rooms[].id, including app bathroom/closet spaces; empty string clears selection."
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Client"
+          },
+          "speaker": {
+            "type": "object",
+            "properties": {
+              "known": {
+                "type": "boolean"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "known",
+              "name"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "location",
+          "archived",
+          "source",
+          "speaker"
+        ],
+        "additionalProperties": false
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "apiVersion": {
+            "const": 1
+          },
+          "requestId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [],
+        "additionalProperties": true
+      },
+      "Response": {
+        "type": "object",
+        "properties": {
+          "apiVersion": {
+            "const": 1
+          },
+          "requestId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "capabilities": {
+            "type": "object",
+            "properties": {
+              "operations": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "bootstrap",
+                    "new",
+                    "open",
+                    "send",
+                    "apply",
+                    "cancel",
+                    "location",
+                    "rename",
+                    "archive"
+                  ]
+                }
+              },
+              "clients": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "web",
+                    "voice"
+                  ]
+                }
+              },
+              "componentVersion": {
+                "const": 1
+              },
+              "requestRetentionHours": {
+                "const": 24
+              },
+              "requestLimit": {
+                "const": 10000
+              }
+            },
+            "required": [
+              "operations",
+              "clients",
+              "componentVersion",
+              "requestRetentionHours",
+              "requestLimit"
+            ],
+            "additionalProperties": false
+          },
+          "conversation": {
+            "$ref": "#/components/schemas/Conversation"
+          },
+          "reply": {
+            "$ref": "#/components/schemas/Reply"
+          },
+          "rooms": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Room"
+            }
+          },
+          "user": {
+            "type": "object"
+          },
+          "threads": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "archivedThreads": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "thread": {
+            "type": "object",
+            "description": "Saved messages, components, forms, and tool references for screen/history clients."
+          },
+          "details": {
+            "type": "object",
+            "description": "Saved diagnostics only for open + toolDetailsId."
+          }
+        },
+        "required": [
+          "apiVersion",
+          "requestId",
+          "replayed",
+          "capabilities",
+          "reply"
+        ],
+        "additionalProperties": true
+      },
+      "bootstrapRequest": {
+        "type": "object",
+        "properties": {
+          "apiVersion": {
+            "const": 1
+          },
+          "op": {
+            "const": "bootstrap"
+          },
+          "client": {
+            "$ref": "#/components/schemas/Client"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "threadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          }
+        },
+        "required": [
+          "apiVersion",
+          "op",
+          "client"
+        ],
+        "additionalProperties": false
+      },
+      "newRequest": {
+        "type": "object",
+        "properties": {
+          "apiVersion": {
+            "const": 1
+          },
+          "op": {
+            "const": "new"
+          },
+          "client": {
+            "$ref": "#/components/schemas/Client"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Exact rooms[].id, including app bathroom/closet spaces; empty string clears selection."
+          }
+        },
+        "required": [
+          "apiVersion",
+          "op",
+          "client",
+          "requestId"
+        ],
+        "additionalProperties": false
+      },
+      "openRequest": {
+        "type": "object",
+        "properties": {
+          "apiVersion": {
+            "const": 1
+          },
+          "op": {
+            "const": "open"
+          },
+          "client": {
+            "$ref": "#/components/schemas/Client"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "threadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "toolDetailsId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          }
+        },
+        "required": [
+          "apiVersion",
+          "op",
+          "client",
+          "threadId"
+        ],
+        "additionalProperties": false
+      },
+      "sendRequest": {
+        "type": "object",
+        "properties": {
+          "apiVersion": {
+            "const": 1
+          },
+          "op": {
+            "const": "send"
+          },
+          "client": {
+            "$ref": "#/components/schemas/Client"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "threadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1500
+          },
+          "componentAction": {
+            "$ref": "#/components/schemas/ComponentAction"
+          },
+          "confirmationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "selected": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "minItems": 0,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "apiVersion",
+          "op",
+          "client",
+          "requestId",
+          "threadId"
+        ],
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "text"
+            ],
+            "not": {
+              "required": [
+                "componentAction"
+              ]
+            }
+          },
+          {
+            "required": [
+              "componentAction"
+            ],
+            "not": {
+              "required": [
+                "text"
+              ]
+            }
+          }
+        ]
+      },
+      "applyRequest": {
+        "type": "object",
+        "properties": {
+          "apiVersion": {
+            "const": 1
+          },
+          "op": {
+            "const": "apply"
+          },
+          "client": {
+            "$ref": "#/components/schemas/Client"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "threadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "messageId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "selected": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "apiVersion",
+          "op",
+          "client",
+          "requestId",
+          "threadId",
+          "messageId",
+          "selected"
+        ],
+        "additionalProperties": false
+      },
+      "cancelRequest": {
+        "type": "object",
+        "properties": {
+          "apiVersion": {
+            "const": 1
+          },
+          "op": {
+            "const": "cancel"
+          },
+          "client": {
+            "$ref": "#/components/schemas/Client"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "threadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          }
+        },
+        "required": [
+          "apiVersion",
+          "op",
+          "client",
+          "requestId",
+          "threadId"
+        ],
+        "additionalProperties": false
+      },
+      "locationRequest": {
+        "type": "object",
+        "properties": {
+          "apiVersion": {
+            "const": 1
+          },
+          "op": {
+            "const": "location"
+          },
+          "client": {
+            "$ref": "#/components/schemas/Client"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "threadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Exact rooms[].id, including app bathroom/closet spaces; empty string clears selection."
+          }
+        },
+        "required": [
+          "apiVersion",
+          "op",
+          "client",
+          "requestId",
+          "threadId",
+          "location"
+        ],
+        "additionalProperties": false
+      },
+      "renameRequest": {
+        "type": "object",
+        "properties": {
+          "apiVersion": {
+            "const": 1
+          },
+          "op": {
+            "const": "rename"
+          },
+          "client": {
+            "$ref": "#/components/schemas/Client"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "threadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "apiVersion",
+          "op",
+          "client",
+          "requestId",
+          "threadId",
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "archiveRequest": {
+        "type": "object",
+        "properties": {
+          "apiVersion": {
+            "const": 1
+          },
+          "op": {
+            "const": "archive"
+          },
+          "client": {
+            "$ref": "#/components/schemas/Client"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "threadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "targetThreadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-zA-Z0-9_.:-]+$"
+          },
+          "archived": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "apiVersion",
+          "op",
+          "client",
+          "requestId",
+          "threadId"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+}
