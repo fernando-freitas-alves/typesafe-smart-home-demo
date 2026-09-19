@@ -33,13 +33,15 @@ The bridge listens only on `127.0.0.1:5189`. Do not publish that port or add an 
 
    ```yaml
    title: Home chat
+   icon: mdi:chat-outline
+   show_icon_and_title: false
    path: home-chat
    type: panel
    cards:
      - type: custom:typesafe-chat-card
    ```
 
-Open **Overview → Home chat** (`/lovelace/home-chat`). The tab shares the sidebar panel's chats, identity, theme, and API. Its height fits below the dashboard tabs, including on mobile. Resource and API URLs stay relative to HA, so local and remote access use the same configuration. The standalone `/home-chat` panel remains available.
+Open the **chat bubble tab** in Overview (`/lovelace/home-chat`). Its accessible name stays **Home chat**. The tab shares the sidebar panel's chats, identity, theme, and API. Its height fits below the dashboard tabs, including on mobile. Resource and API URLs stay relative to HA, so local and remote access use the same configuration. The standalone `/home-chat` panel remains available.
 
 ## Connect ChatGPT once
 
