@@ -1,3 +1,4 @@
+import { createChatRequest } from './chat-client.js?v=1';
 import { renderHistoryList } from './chat-history.js?v=1';
 import { renderDeviceCollections, renderReviewAction, bindDeviceControls } from './chat-components.js?v=1';
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -44,7 +45,7 @@ export class HomeChatPanel extends HTMLElement {
     if (op === 'send' && !extra.componentAction) { this.pendingText = extra.text; this.draft = ''; }
     this.busy = true; this.operation = op; this.error = ''; this.render(); position();
     try {
-      const payload = { op, ...(this.data ? { threadId: this.data.thread.id } : {}), requestId: crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`, ...extra };
+      const payload = createChatRequest(op, { ...(this.data && op !== 'new' ? { threadId: this.data.thread.id } : {}), ...extra });
       const result = await this._hass.callApi('POST', 'typesafe_chat', payload);
       if (result.error) throw new Error(result.error);
       this.data = result;
@@ -86,7 +87,7 @@ export class HomeChatPanel extends HTMLElement {
     try {
       let details = this.toolDetails.get(id);
       if (!details) {
-        const result = await this._hass.callApi('POST', 'typesafe_chat', { op: 'open', threadId: this.data.thread.id, toolDetailsId: id });
+        const result = await this._hass.callApi('POST', 'typesafe_chat', createChatRequest('open', { threadId: this.data.thread.id, toolDetailsId: id }));
         if (result.error) throw new Error(result.error);
         details = result.details;
         if (this.data?.user.id !== account) return;
@@ -199,7 +200,7 @@ export class HomeChatPanel extends HTMLElement {
   send() {
     if (this.busy || this.data?.thread.archived || !this.draft.trim()) return;
     const pending = [...(this.data?.thread.messages || [])].reverse().find(item => item.form?.status === 'pending');
-    this.request('send', { text: this.draft.trim(), ...(pending && this.selections.has(pending.id) ? { selected: this.selections.get(pending.id) } : {}) });
+    this.request('send', { text: this.draft.trim(), ...(pending ? { confirmationId: pending.id } : {}), ...(pending && this.selections.has(pending.id) ? { selected: this.selections.get(pending.id) } : {}) });
   }
   bindHistory(root) {
     root.querySelectorAll('[data-thread]').forEach(button => button.onclick = () => this.request('open', { threadId: button.dataset.thread }));

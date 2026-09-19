@@ -120,8 +120,9 @@ export class LiveHome {
     const started = performance.now(); const snapshot = await this.snapshot(signal); const inventoryDurationMs = Math.round(performance.now() - started);
     if (room && !snapshot.rooms.some(r => r.id === room)) throw new Error('The selected room is no longer available. Refresh the home.');
     if (typeof location !== 'string' || (location && !snapshot.rooms.some(r => r.id === location))) throw new Error('Your selected location is no longer available. Select Where I am again.');
-    const person = identityProfile(this.actor ? identityForName(this.actor.name) : identity, snapshot.rooms);
-    const user = { name: this.actor ? this.actor.name : identity === 'other' ? null : person.name, office: person.office, location: snapshot.rooms.find(r => r.id === location) || null };
+    const actor = input.anonymous ? null : this.actor;
+    const person = identityProfile(input.anonymous ? 'other' : actor ? identityForName(actor.name) : identity, snapshot.rooms);
+    const user = { name: input.anonymous ? null : actor ? actor.name : identity === 'other' ? null : person.name, office: person.office, location: snapshot.rooms.find(r => r.id === location) || null };
     const devices = room ? snapshot.devices.filter(d => d.room === room) : snapshot.devices;
     let plans, stages = [];
     try {

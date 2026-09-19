@@ -4,6 +4,7 @@ import { redactDiagnostics } from './trace-utils.mjs';
 import { deviceCollection, deviceComponent, resolveComponentAction } from './chat-components.mjs';
 
 const approval = /^(?:yes(?: please)?|apply(?: all)?|confirm|go ahead|do it|ok(?:ay)?|sim|pode aplicar|confirmar)[.!\s]*$/i;
+export const isApproval = text => typeof text === 'string' && approval.test(text);
 const rejection = /^(?:no(?: thanks)?|cancel|never mind|nevermind|discard|stop|não|nao|cancelar)[.!\s]*$/i;
 const message = (role, text, extra = {}) => ({ id: randomUUID(), role, text, createdAt: new Date().toISOString(), ...extra });
 function newThread() { return { id: randomUUID(), title: 'New chat', location: '', messages: [], updatedAt: new Date().toISOString(), waitingCommand: null, receipts: [] }; }
@@ -33,10 +34,10 @@ export class ChatService {
   pending(thread) { return [...thread.messages].reverse().find(item => item.form?.status === 'pending'); }
   async handle(input, signal) {
     const data = await this.store.load(this.actor.id);
-    if (!data.threads.length) data.threads.push(newThread());
+    if (!data.threads.length && input.op !== 'new') data.threads.push(newThread());
     let thread = input.threadId ? data.threads.find(item => item.id === input.threadId) : data.threads.find(item => item.id === data.activeThreadId) || data.threads.find(item => !item.archived) || data.threads[0];
-    if (!thread) throw new Error('That chat is not available for your Home Assistant account.');
-    if (thread.archived && !['bootstrap', 'open', 'new', 'archive'].includes(input.op)) throw new Error('Restore this archived chat before continuing it.');
+    if (!thread && input.op !== 'new') throw new Error('That chat is not available for your Home Assistant account.');
+    if (thread?.archived && !['bootstrap', 'open', 'new', 'archive'].includes(input.op)) throw new Error('Restore this archived chat before continuing it.');
     if (input.op === 'open' && input.toolDetailsId) {
       const tool = thread.messages.flatMap(item => item.tools || []).find(item => item.detailsId === input.toolDetailsId);
       if (!tool) throw new Error('These tool details do not belong to this chat.');
@@ -44,9 +45,15 @@ export class ChatService {
     }
     if (input.op === 'new') {
       if (data.threads.filter(item => !item.archived).length >= 100) throw new Error('You have 100 chats. Archive a chat before starting another.');
-      thread = newThread(); data.threads.unshift(thread);
+      thread = newThread();
+      if (input.apiVersion === 1) thread.source = { ...input.client };
+      data.threads.unshift(thread);
     }
     const snapshot = await this.home.snapshot(signal);
+    if (input.op === 'new' && input.location !== undefined) {
+      if (input.location && !snapshot.rooms.some(room => room.id === input.location)) throw new Error('Choose a location from this home.');
+      thread.location = input.location;
+    }
     if (!thread.archived && thread.location && !snapshot.rooms.some(room => room.id === thread.location)) { thread.location = ''; this.invalidate(thread, 'expired'); }
     for (const item of thread.messages) if (item.form?.status === 'pending' && (!this.home.pending.has(item.form.planId) || Date.now() >= Date.parse(item.form.expiresAt))) item.form.status = 'expired';
     for (const item of [...thread.messages]) if (item.form?.status === 'applying') {
@@ -65,6 +72,7 @@ export class ChatService {
     } else if (input.op === 'send') {
       if (typeof input.text !== 'string' || !input.text.trim() || input.text.length > 1500) throw new Error('Write a message between 1 and 1,500 characters.');
       const text = input.text.trim(); const pending = this.pending(thread);
+      if (approval.test(text) && input.confirmationId && pending?.id !== input.confirmationId) throw new Error('This approval is no longer active. Ask for a new preview.');
       const history = thread.messages.slice(-10).map(item => ({ role: item.role, text: item.text, ...(item.form?.actions ? { proposedActions: item.form.actions.map(action => ({ name: action.name, room: action.roomName, action: action.label })) } : {}) }));
       thread.messages.push(message('user', text));
       if (thread.title === 'New chat') thread.title = text.slice(0, 65);
@@ -75,7 +83,7 @@ export class ChatService {
         this.invalidate(thread); thread.waitingCommand = null;
         try {
           const resolved = await this.resolve(text, history, signal);
-          if (resolved.clarification) thread.messages.push(message('assistant', resolved.clarification, { tools: resolved.diagnostics ? [contextTool(resolved, text)] : [] }));
+          if (resolved.clarification) thread.messages.push(message('assistant', resolved.clarification, { expectsReply: true, tools: resolved.diagnostics ? [contextTool(resolved, text)] : [] }));
           else await this.preview(thread, resolved.command, signal, resolved);
         } catch (error) { thread.messages.push(message('assistant', error.message, { error: true, tools: failedTool(error) })); }
       }
@@ -111,13 +119,13 @@ export class ChatService {
         if (archived) target.archivedAt = new Date().toISOString();
         else { delete target.archivedAt; target.updatedAt = new Date().toISOString(); }
       }
-      if (archived && target.id === thread.id) {
+      if (archived && target.id === thread.id && input.activate !== false) {
         thread = data.threads.find(item => item.id === data.activeThreadId && !item.archived) || data.threads.filter(item => !item.archived).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] || newThread();
         if (!data.threads.some(item => item.id === thread.id)) data.threads.unshift(thread);
       }
     } else if (!['bootstrap', 'open', 'new'].includes(input.op)) throw new Error('Unknown chat operation.');
     if (requestId) thread.receipts = [...thread.receipts, requestId].slice(-50);
-    data.activeThreadId = thread.id;
+    if (input.activate !== false) data.activeThreadId = thread.id;
     if (!['bootstrap', 'open', 'archive'].includes(input.op)) thread.updatedAt = new Date().toISOString();
     // Keep a bounded conversation while leaving previously saved chats intact.
     if (thread.messages.length > 300) thread.messages = thread.messages.slice(-300);
@@ -139,11 +147,11 @@ export class ChatService {
     return { user: { id: this.actor.id, name: this.actor.name }, rooms: snapshot.rooms,
       threads: data.threads.filter(item => !item.archived).map(summary).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
       archivedThreads: data.threads.filter(item => item.archived).map(summary).sort((a, b) => (b.archivedAt || b.updatedAt).localeCompare(a.archivedAt || a.updatedAt)),
-      thread: { id: thread.id, title: thread.title, location: thread.location, messages: thread.messages, archived: Boolean(thread.archived) }, connected: true };
+      thread: { id: thread.id, title: thread.title, location: thread.location, messages: thread.messages, archived: Boolean(thread.archived), source: thread.source || { kind: 'web' } }, connected: true };
   }
   async preview(thread, command, signal, context = {}, manual) {
     try {
-      const result = await this.home.preview({ command, location: thread.location, context: 'devices', ...(manual ? { manual } : {}) }, signal);
+      const result = await this.home.preview({ command, location: thread.location, anonymous: thread.source?.kind === 'voice', context: 'devices', ...(manual ? { manual } : {}) }, signal);
       const tools = summarizeTools(result);
       if (context.durationMs !== undefined) tools.unshift(contextTool(context, command));
       if (result.planId) {
@@ -160,6 +168,10 @@ export class ChatService {
         thread.messages.push(message('assistant', text, { tools, command, components, summary }));
       }
     } catch (error) {
+      if (thread.source?.kind === 'voice' && /To use “my office”/.test(error.message)) {
+        thread.messages.push(message('assistant', 'Which person’s office do you mean? Please name the room.', { expectsReply: true }));
+        return;
+      }
       const needsLocation = /Where I am|selected location|location is no longer|select.*room/i.test(error.message);
       if (needsLocation) thread.waitingCommand = command;
       thread.messages.push(message('assistant', needsLocation ? 'Which space are you in? Choose a location below, or name the room in your next message.' : error.message,
