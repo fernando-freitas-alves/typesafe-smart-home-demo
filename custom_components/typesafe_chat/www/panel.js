@@ -8,7 +8,7 @@ const statuses = { applied: 'Sent to Home Assistant', revised: 'Replaced by your
 export class HomeChatPanel extends HTMLElement {
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
-    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=6', import.meta.url); stylesheet.onload = () => this.scrollBottom();
+    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=7', import.meta.url); stylesheet.onload = () => this.scrollBottom();
     this.view = document.createElement('div'); this.view.style.display = 'contents'; this.shadowRoot.append(stylesheet, this.view);
     this.sidebar = false; this.historyMode = 'chats'; this.historyQuery = ''; this.historyNotice = null; this.busy = false; this.data = null; this.draft = ''; this.error = ''; this.started = false; this.selections = new Map(); this.toolDetails = new Map(); this.componentValues = new Map();
     this.onResize = () => {
@@ -20,6 +20,7 @@ export class HomeChatPanel extends HTMLElement {
   set hass(value) {
     const changedUser = this._hass?.user?.id && this._hass.user.id !== value?.user?.id;
     this._hass = value; this.style.colorScheme = value?.themes?.darkMode ? 'dark' : 'light';
+    this.updateAccountBadge();
     if (changedUser) { this.data = null; this.started = false; this.draft = ''; this.sidebar = false; this.historyMode = 'chats'; this.historyQuery = ''; this.historyNotice = null; this.selections.clear(); this.toolDetails.clear(); this.componentValues.clear(); }
     if (this.isConnected && value && !this.started) this.start();
   }
@@ -30,6 +31,11 @@ export class HomeChatPanel extends HTMLElement {
     this.expiryTimer = setInterval(() => this.expireForms(), 1000);
   }
   disconnectedCallback() { clearInterval(this.expiryTimer); window.visualViewport?.removeEventListener('resize', this.onResize); }
+  updateAccountBadge() {
+    const badge = this.shadowRoot.querySelector('ha-user-badge');
+    // Reuse HA's photo/initials rendering, including older versions that need hass.
+    if (badge) { badge.hass = this._hass; badge.user = this._hass?.user; }
+  }
   async start() { this.started = true; await this.request('bootstrap', {}, false); }
   async request(op, extra = {}, focus = true) {
     if (this.busy) return;
@@ -150,13 +156,12 @@ export class HomeChatPanel extends HTMLElement {
     this.view.innerHTML = `<div class="layout ${this.sidebar ? 'sidebar-open' : ''}">
       ${this.sidebar ? `<button class="scrim" aria-label="Close chat history" data-close></button>` : ''}
       <aside class="sidebar" aria-label="Chat history" ${!this.sidebar ? 'inert' : ''}>
-        <div class="sidebar-top"><strong>Your chats</strong><button class="icon-button" title="Close chat history" aria-label="Close chat history" data-close>${icon('dock-left')}</button></div>
-        <button class="new-chat" data-new ${this.busy ? 'disabled' : ''}>${icon('plus')}New chat</button>
+        <div class="sidebar-top"><strong>Your chats</strong><div class="sidebar-actions"><button class="icon-button new-chat" title="New chat" aria-label="New chat" data-new ${this.busy ? 'disabled' : ''}>${icon('plus')}</button><button class="icon-button" title="Close chat history" aria-label="Close chat history" data-close>${icon('dock-left')}</button></div></div>
         <label class="history-search">${icon('magnify')}<span class="sr-only">Search chats</span><input type="search" name="chat-search" autocomplete="off" placeholder="Search chats" value="${escape(this.historyQuery)}" data-history-search></label>
         <div class="history-views" role="group" aria-label="Chat history views">${['chats', 'archived'].map(mode => `<button data-history-view="${mode}" aria-pressed="${this.historyMode === mode}">${mode === 'chats' ? icon('chat-outline') + 'Chats' : icon('archive-outline') + 'Archived'}<span>${(mode === 'chats' ? this.data?.threads : this.data?.archivedThreads)?.length || 0}</span></button>`).join('')}</div>
         <nav aria-label="${this.historyMode === 'archived' ? 'Archived conversations' : 'Conversations'}">${renderHistoryList(this.data, { mode: this.historyMode, query: this.historyQuery, busy: this.busy })}</nav>
         ${this.historyNotice ? `<div class="history-notice" role="status">${icon('check-circle-outline')}<span>${this.historyNotice.text}</span>${this.historyNotice.undoId ? `<button class="text-button" data-history-undo ${this.busy ? 'disabled' : ''}>Undo</button>` : ''}</div>` : ''}
-        <div class="account">${icon('account-circle-outline')}<div><strong>${escape(name)}</strong><small>Home Assistant account</small></div></div>
+        <div class="account"><span class="account-avatar" aria-hidden="true"><ha-user-badge></ha-user-badge>${icon('account-circle-outline')}</span><div><strong>${escape(name)}</strong><small>Home Assistant account</small></div></div>
       </aside>
       <main ${this.sidebar && matchMedia('(max-width: 700px)').matches ? 'inert' : ''}><header><div class="header-left"><ha-menu-button class="ha-menu" title="Home Assistant menu"></ha-menu-button><button class="icon-button" aria-label="${this.sidebar ? 'Close' : 'Open'} chat history" aria-expanded="${this.sidebar}" title="Chat history" data-sidebar>${icon('dock-left')}</button><button class="icon-button" title="New chat" aria-label="New chat" data-new ${this.busy ? 'disabled' : ''}>${icon('square-edit-outline')}</button><span class="brand">Home chat<span class="brand-dot" aria-hidden="true"></span></span></div><div class="header-right"><span class="user-name">${escape(name)}</span>${hasMessages ? `<details class="chat-menu"><summary class="icon-button" aria-label="Chat options" title="Chat options">${icon('dots-horizontal')}</summary><div>${archived ? `<button data-restore="${escape(this.data.thread.id)}" ${this.busy ? 'disabled' : ''}>Restore chat</button>` : `<button data-rename ${this.busy ? 'disabled' : ''}>Rename chat</button><button data-archive ${this.busy ? 'disabled' : ''}>Archive chat</button>`}</div></details>` : ''}</div></header>
       <div class="scroll-area"><div class="conversation ${!hasMessages ? 'empty' : ''}">${hasMessages ? messages.map(item => this.renderMessage(item)).join('') || '<p class="archived-empty">This archived chat is empty.</p>' : `<section class="welcome"><div class="welcome-icon">${icon('home-outline')}</div><h1>What can I help with${name !== 'Home Assistant' ? `, ${escape(name.split(' ')[0])}` : ''}?</h1><p>Your home, one conversation.</p><div class="suggestions"><button data-prompt="Turn on the lights">${icon('lightbulb-outline')}Turn on the lights</button><button data-prompt="Which lights are on here?">${icon('home-search-outline')}What’s on here?</button><button data-prompt="What’s the temperature here?">${icon('thermometer')}Check the temperature</button></div></section>`}${this.pendingText ? this.renderMessage({ role: 'user', text: this.pendingText }) : ''}${this.busy ? `<div class="working" role="status"><span class="working-dot"></span>${this.operation === 'apply' ? 'Applying your selected changes…' : this.operation === 'bootstrap' ? 'Connecting to your home…' : this.operation === 'send' ? 'Working on your request…' : 'Updating your chat…'}</div>` : ''}</div></div>
@@ -167,6 +172,7 @@ export class HomeChatPanel extends HTMLElement {
     bindDeviceControls(root, { values: this.componentValues, submit: componentAction => this.request('send', { componentAction }, false) });
     root.querySelectorAll('[data-tool-details]').forEach(disclosure => disclosure.addEventListener('toggle', () => this.loadToolDetails(disclosure)));
     const menu = root.querySelector('ha-menu-button'); if (menu) { menu.hass = this._hass; menu.narrow = this._narrow; }
+    this.updateAccountBadge();
     root.querySelector('[data-sidebar]').onclick = () => { this.sidebar = !this.sidebar; this.render(); if (this.sidebar) root.querySelector('.sidebar [data-close]').focus(); };
     root.querySelectorAll('[data-close]').forEach(button => button.onclick = () => { this.sidebar = false; this.render(); root.querySelector('[data-sidebar]').focus(); });
     root.querySelectorAll('[data-new]').forEach(button => button.onclick = () => this.request('new'));
