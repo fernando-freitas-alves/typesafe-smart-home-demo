@@ -39,16 +39,35 @@ The motor-controller version byte `0x40` decodes to **1.0.0** under [Tuya's MCU 
 
 ## What would resolve the remaining ambiguity
 
-The strongest next evidence is the **exact `q9xty0ad` product's DP ID/name/type/access mapping**, available through the original app/cloud device definition if a record still exists. Zigbee2MQTT documents an [official-app workflow for finding DP names](https://www.zigbee2mqtt.io/advanced/support-new-devices/03_find_tuya_data_points.html). Standardized cloud function lists may omit manufacturer-specific fields, so the raw DP mapping matters.
+The missing evidence is the **exact `q9xty0ad` product's DP ID/name/type/access mapping**. Manufacturer protocol documentation, matching firmware, or a capture correlating known operations with raw reports could establish it. The investigation must preserve the current Zigbee pairing: the owner ruled out switching to Wi-Fi/original-app mode.
 
-Alternatively, capture the original app's known control operations or, with physical access, the module/MCU serial exchange. A write experiment should test an identified operation with a known restoration procedure; setting an unknown Boolean to true would not establish that it enables reporting and could alter limits or operating mode. No such write is implemented in the production converter.
+With physical access, capturing the module/MCU serial exchange is another source of evidence. A write experiment should test an identified operation with a known restoration procedure; setting an unknown Boolean to true would not establish that it enables reporting and could alter limits or operating mode. No such write is implemented in the production converter.
 
 ## Follow-up: original app/cloud definition
 
 A fresh, read-only query through the Tuya sharing SDK and HA's existing valid session confirmed that the connected account has **no matching shade record**. This checked the live home/device lists, not only HA's cached diagnostics. No token refresh, device command, or configuration change was performed.
 
-The installed HA sharing SDK retrieves specifications and raw status strategy by **cloud device ID**. A Zigbee IEEE address or the manufacturer string cannot be substituted for that ID. A separate Tuya app account may still hold the required record; whether these shades were ever paired through an original-app gateway remains unconfirmed.
+The installed HA sharing SDK retrieves specifications and raw status strategy by **cloud device ID**. A Zigbee IEEE address or the manufacturer string cannot be substituted for that ID.
 
 If a record is available, retrieve its product ID and complete DP mapping, including each field's numeric ID, code/name, type, and read/write access. Check that the product is `q9xty0ad` before assigning a meaning to DP104. Tuya's [app SDK also exposes product thing-model lookup](https://developer.tuya.com/en/docs/app-development/devicemanage?id=Ka6ki8r2rfiuu), but that is a separate SDK capability, not an endpoint provided by HA's sharing client. Standardized function lists alone may omit the custom field.
 
-The cloud-definition approach is therefore **pending access to a matching original-app product/device record**. This result does not identify DP104 or establish that continuous measured position reporting can be enabled. The tested converter and estimated UI animation remain unchanged.
+**Closed for this installation:** the owner clarified that the original-app route would require Wi-Fi mode and excluded that approach. Do not keep asking for a Tuya account, re-pair the shades, or switch their radio mode to obtain a schema. A Wi-Fi variant's field mapping would also require independent verification against the Zigbee product.
+
+## Follow-up: Zigbee-only capability discovery
+
+Read-only ZCL global requests were sent to shade 4 on the existing coordinator at **06:10 UTC**. The outbound frames were checked to contain only Read Attributes (`0x00`), Discover Attributes (`0x0c`), Discover Commands Received (`0x11`), or Discover Commands Generated (`0x13`). No cluster-specific control command or DP write was sent.
+
+| Request | Observed result |
+| --- | --- |
+| Basic cluster: read application version, manufacturer, model and software build | No correlated response within six seconds. |
+| Tuya `0xef00`: Discover Attributes | No correlated response within six seconds. |
+| Tuya `0xef00`: Discover Commands Received | Raw response `18 c2 0b 11 01`: Default Response to `0x11`, status `0x01` (FAILURE). |
+| Tuya `0xef00`: Discover Commands Generated | Raw response `18 c3 0b 13 01`: Default Response to `0x13`, status `0x01` (FAILURE). |
+| Private `0xed00`: Discover Attributes | No correlated response within six seconds. |
+| Basic cluster: Discover Attributes | No correlated response within six seconds. |
+
+The bridge returned `status: ok` for the two Default Responses because it successfully received a packet; decoding those packets shows that the **device rejected the discovery requests**. Timeouts do not prove that attributes are absent, especially because the Basic-cluster read also timed out. No usable attribute or command catalog was recovered. The device continued sending its existing Basic-cluster reports afterward, and HA's last measured position remained 21%.
+
+The [public Zigbee OTA index](https://github.com/Koenkk/zigbee-OTA/blob/master/index.json) was also checked for `q9xty0ad`/AyVolt; no matching record was found. This is not evidence that firmware cannot be obtained from another source. No firmware was installed or requested from the motor.
+
+**Result:** neither cloud lookup nor standard Zigbee discovery supplied the missing field definition. DP104 remains unidentified, and there is still no verified way to enable continuous measured position reports. The production converter and labelled estimated UI animation are unchanged.
