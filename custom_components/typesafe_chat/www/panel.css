@@ -98,3 +98,6 @@ header,.sidebar-top,.composer-note,.send,.connection-status,.model-picker>summar
 textarea{max-height:min(180px,max(48px,calc(var(--chat-viewport,100dvh) - 230px)))}
 .model-menu{max-height:min(480px,max(120px,calc(var(--chat-viewport,100dvh) - 150px)))}
 @media(max-width:700px),(pointer:coarse){textarea,input,select{font-size:16px}}
+/* Give the conversation the space normally used by the note and home indicator
+   while the software keyboard is visible. Restore both when it closes. */
+@media(max-width:700px),(pointer:coarse){:host([keyboard-open]) .composer-area{padding-bottom:6px}:host([keyboard-open]) .composer-note{display:none}}
