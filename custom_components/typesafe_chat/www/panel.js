@@ -1,6 +1,7 @@
 import { openAiSettings } from './chat-settings.js?v=2';
 import { renderModelPicker, bindModelPicker } from './chat-model-picker.js?v=1';
 import { createChatRequest } from './chat-client.js?v=1';
+import { chatViewportFrame } from './chat-viewport.js?v=1';
 import { renderHistoryList } from './chat-history.js?v=1';
 import { renderDeviceCollections, renderReviewAction, bindDeviceControls } from './chat-components.js?v=1';
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -10,18 +11,25 @@ const statuses = { applied: 'Sent to Home Assistant', revised: 'Replaced by your
 export class HomeChatPanel extends HTMLElement {
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
-    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=12', import.meta.url); stylesheet.onload = () => { this.onResize(); this.scrollBottom(); };
+    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=13', import.meta.url); stylesheet.onload = () => { this.onResize(); this.scrollBottom(); };
     this.view = document.createElement('div'); this.view.style.display = 'contents'; this.shadowRoot.append(stylesheet, this.view);
     this.sidebar = false; this.historyMode = 'chats'; this.historyQuery = ''; this.historyNotice = null; this.busy = false; this.data = null; this.draft = ''; this.error = ''; this.started = false; this.selections = new Map(); this.toolDetails = new Map(); this.componentValues = new Map();
     this.modelChoices = new Map(); this.modelState = null; this.modelError = ''; this.modelsLoading = false;
     this.onModelOutside = event => { const picker = this.shadowRoot.querySelector('.model-picker'); if (picker?.open && !event.composedPath().includes(picker)) picker.open = false; };
     this.onResize = () => {
-      const viewport = window.visualViewport;
-      const top = this.hasAttribute('dashboard') ? Math.max(0, this.getBoundingClientRect().top - (viewport?.offsetTop || 0)) : 0;
-      const height = `${Math.max(0, Math.floor((viewport?.height || window.innerHeight) - top))}px`;
-      if (this.style.getPropertyValue('--chat-viewport') !== height) this.style.setProperty('--chat-viewport', height);
-      const main = this.shadowRoot.querySelector('main');
-      if (main) main.inert = this.sidebar && matchMedia('(max-width: 700px)').matches;
+      if (this.viewportFrame) return;
+      this.viewportFrame = requestAnimationFrame(() => {
+        this.viewportFrame = 0;
+        if (!this.isConnected) return;
+        const viewport = window.visualViewport;
+        const frame = chatViewportFrame({ height: viewport?.height || window.innerHeight, offsetTop: viewport?.offsetTop || 0, hostTop: this.getBoundingClientRect().top });
+        for (const [key, value] of [['--chat-viewport', frame.height], ['--chat-viewport-shift', frame.shift]]) {
+          const px = `${value}px`;
+          if (this.style.getPropertyValue(key) !== px) this.style.setProperty(key, px);
+        }
+        const main = this.shadowRoot.querySelector('main');
+        if (main) main.inert = this.sidebar && matchMedia('(max-width: 700px)').matches;
+      });
     };
   }
   set hass(value) {
@@ -34,11 +42,25 @@ export class HomeChatPanel extends HTMLElement {
   set narrow(value) { this._narrow = value; this.toggleAttribute('narrow', Boolean(value)); }
   connectedCallback() {
     this.render(); this.onResize(); window.visualViewport?.addEventListener('resize', this.onResize); window.addEventListener('resize', this.onResize);
+    window.visualViewport?.addEventListener('scroll', this.onResize);
+    window.visualViewport?.addEventListener('scrollend', this.onResize);
+    window.addEventListener('scroll', this.onResize, true);
+    this.shadowRoot.addEventListener('focusin', this.onResize);
+    this.shadowRoot.addEventListener('focusout', this.onResize);
     document.addEventListener('pointerdown', this.onModelOutside);
     if (this._hass && !this.started) this.start();
     this.expiryTimer = setInterval(() => this.expireForms(), 1000);
   }
-  disconnectedCallback() { this.shadowRoot.querySelector('.ai-settings')?.close(); clearInterval(this.expiryTimer); window.visualViewport?.removeEventListener('resize', this.onResize); window.removeEventListener('resize', this.onResize); document.removeEventListener('pointerdown', this.onModelOutside); }
+  disconnectedCallback() {
+    this.shadowRoot.querySelector('.ai-settings')?.close(); clearInterval(this.expiryTimer);
+    cancelAnimationFrame(this.viewportFrame); this.viewportFrame = 0;
+    window.visualViewport?.removeEventListener('resize', this.onResize);
+    window.visualViewport?.removeEventListener('scroll', this.onResize);
+    window.visualViewport?.removeEventListener('scrollend', this.onResize);
+    window.removeEventListener('resize', this.onResize); window.removeEventListener('scroll', this.onResize, true);
+    this.shadowRoot.removeEventListener('focusin', this.onResize); this.shadowRoot.removeEventListener('focusout', this.onResize);
+    document.removeEventListener('pointerdown', this.onModelOutside);
+  }
   updateAccountBadge() {
     const badge = this.shadowRoot.querySelector('ha-user-badge');
     // Reuse HA's photo/initials rendering, including older versions that need hass.
@@ -120,7 +142,7 @@ export class HomeChatPanel extends HTMLElement {
     } catch (error) {
       this.error = error.body?.message || error.body?.error || error.message || 'Could not reach Home chat. Reopen the chat to check its latest result.';
       if (op === 'send') this.draft ||= previousDraft;
-    } finally { this.busy = false; this.pendingText = ''; this.render(); position(); if (closeSidebar) this.setSidebar(false, { focus: false }); if (focus && !matchMedia('(pointer: coarse)').matches) this.shadowRoot.querySelector('textarea')?.focus(); }
+    } finally { this.busy = false; this.pendingText = ''; this.render(); position(); if (closeSidebar) this.setSidebar(false, { focus: false }); if (focus && !matchMedia('(pointer: coarse)').matches) this.shadowRoot.querySelector('textarea')?.focus({ preventScroll: true }); }
   }
   expireForms() {
     for (const item of this.data?.thread.messages || []) {
