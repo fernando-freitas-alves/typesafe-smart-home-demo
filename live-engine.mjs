@@ -151,6 +151,7 @@ export class LiveHome {
     if (skipped.length) stages.push({ kind: 'result', provider: 'Home Assistant', text: `Skipped unavailable or unknown devices: ${skipped.map(d => `${d.name} (${d.roomName})`).join(', ')}.` });
     if (queried.length) stages.push({ kind: 'result', provider: 'Home Assistant', text: queried.map(d => `${d.name} (${d.roomName}): ${liveLabel(d)}.`).join('\n') });
     const result = { ...snapshot, inventoryDurationMs, command, user, context, stages, calls: [], changed: [], durationMs: Math.round(performance.now() - started), live: true,
+      queried: [...new Map(queried.map(device => [device.entity_id, device])).values()],
       skipped: skipped.map(d => ({ name: d.name, roomName: d.roomName, entity_id: d.entity_id })),
       actions: services.map(call => { const device = validateLiveService(call, snapshot.devices); return { ...call, name: device.name, roomName: device.roomName, before: liveLabel(device), label: serviceLabel(call, device) }; }),
       outcome: services.length ? `${services.length} ${services.length === 1 ? 'action' : 'actions'} ready. Review the targets, then apply.` : 'Response ready. No devices changed.' };

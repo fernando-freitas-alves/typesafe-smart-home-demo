@@ -1,3 +1,4 @@
+import { renderDeviceCollections, renderReviewAction, bindDeviceControls } from './chat-components.js?v=1';
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const icon = (name, cls = '') => `<ha-icon class="${cls}" icon="mdi:${name}" aria-hidden="true"></ha-icon>`;
 const statuses = { applied: 'Sent to Home Assistant', revised: 'Replaced by your next request', cancelled: 'Cancelled', expired: 'Preview expired · ask again to refresh', applying: 'Applying…', unconfirmed: 'Check device state before retrying' };
@@ -5,15 +6,15 @@ const statuses = { applied: 'Sent to Home Assistant', revised: 'Replaced by your
 export class HomeChatPanel extends HTMLElement {
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
-    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=4', import.meta.url); stylesheet.onload = () => this.scrollBottom();
+    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=5', import.meta.url); stylesheet.onload = () => this.scrollBottom();
     this.view = document.createElement('div'); this.view.style.display = 'contents'; this.shadowRoot.append(stylesheet, this.view);
-    this.sidebar = false; this.busy = false; this.data = null; this.draft = ''; this.error = ''; this.started = false; this.selections = new Map(); this.toolDetails = new Map();
+    this.sidebar = false; this.busy = false; this.data = null; this.draft = ''; this.error = ''; this.started = false; this.selections = new Map(); this.toolDetails = new Map(); this.componentValues = new Map();
     this.onResize = () => this.style.setProperty('--chat-viewport', `${window.visualViewport?.height || window.innerHeight}px`);
   }
   set hass(value) {
     const changedUser = this._hass?.user?.id && this._hass.user.id !== value?.user?.id;
     this._hass = value; this.style.colorScheme = value?.themes?.darkMode ? 'dark' : 'light';
-    if (changedUser) { this.data = null; this.started = false; this.draft = ''; this.sidebar = false; this.selections.clear(); this.toolDetails.clear(); }
+    if (changedUser) { this.data = null; this.started = false; this.draft = ''; this.sidebar = false; this.selections.clear(); this.toolDetails.clear(); this.componentValues.clear(); }
     if (this.isConnected && value && !this.started) this.start();
   }
   set narrow(value) { this._narrow = value; this.toggleAttribute('narrow', Boolean(value)); }
@@ -27,7 +28,7 @@ export class HomeChatPanel extends HTMLElement {
   async request(op, extra = {}, focus = true) {
     if (this.busy) return;
     const previousDraft = this.draft;
-    if (op === 'send') { this.pendingText = extra.text; this.draft = ''; }
+    if (op === 'send' && !extra.componentAction) { this.pendingText = extra.text; this.draft = ''; }
     this.busy = true; this.operation = op; this.error = ''; this.render(); this.scrollBottom();
     try {
       const payload = { op, ...(this.data ? { threadId: this.data.thread.id } : {}), requestId: crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`, ...extra };
@@ -112,11 +113,12 @@ export class HomeChatPanel extends HTMLElement {
     if (form.kind === 'location' && form.status === 'resolved') return '';
     if (form.kind === 'location') return `<div class="location-question">${this.locationSelect('inline-location', true)}</div>`;
     const active = form.status === 'pending' && Date.now() < Date.parse(form.expiresAt);
-    return `<form class="approval" data-approval="${escape(item.id)}"><div class="approval-heading">${icon('tune-variant')}<strong>Review changes</strong><span>${form.actions.length} ${form.actions.length === 1 ? 'action' : 'actions'}</span></div><fieldset ${!active || this.busy ? 'disabled' : ''}><legend class="sr-only">Select the actions to apply</legend>${form.actions.map((action, index) => `<label class="action"><input type="checkbox" name="selected" value="${index}" ${(form.selected || this.selections.get(item.id) || form.actions.map((_, i) => i)).includes(index) ? 'checked' : ''}><span><strong>${escape(action.name)}</strong><small>${escape(action.roomName)} · currently ${escape(action.before)}</small></span><span class="action-value">${escape(action.label.split(' · ')[0])}</span></label>`).join('')}</fieldset>${active ? `<div class="approval-footer"><span>Apply your selection here, or reply “yes”.</span><div><button type="button" class="text-button" data-cancel ${this.busy ? 'disabled' : ''}>Cancel</button><button class="primary" type="submit" ${this.busy || this.selections.get(item.id)?.length === 0 ? 'disabled' : ''}>Apply selected</button></div></div>` : `<div class="approval-status">${icon(form.status === 'applied' ? 'check-circle-outline' : 'information-outline')}${escape(statuses[form.status] || statuses.expired)}</div>`}</form>`;
+    return `<form class="approval" data-approval="${escape(item.id)}"><div class="approval-heading">${icon('tune-variant')}<strong>Review changes</strong><span>${form.actions.length} ${form.actions.length === 1 ? 'action' : 'actions'}</span></div><fieldset ${!active || this.busy ? 'disabled' : ''}><legend class="sr-only">Select the actions to apply</legend>${form.actions.map((action, index) => renderReviewAction(action, index, (form.selected || this.selections.get(item.id) || form.actions.map((_, i) => i)).includes(index))).join('')}</fieldset>${active ? `<div class="approval-footer"><span>Apply your selection here, or reply “yes”.</span><div><button type="button" class="text-button" data-cancel ${this.busy ? 'disabled' : ''}>Cancel</button><button class="primary" type="submit" ${this.busy || this.selections.get(item.id)?.length === 0 ? 'disabled' : ''}>Apply selected</button></div></div>` : `<div class="approval-status">${icon(form.status === 'applied' ? 'check-circle-outline' : 'information-outline')}${escape(statuses[form.status] || statuses.expired)}</div>`}</form>`;
   }
   renderMessage(item) {
     if (item.role === 'context') return `<div class="context-message">${icon('map-marker-outline')}${escape(item.text)}</div>`;
-    return `<article class="message ${item.role}" aria-label="${item.role === 'user' ? 'You' : 'Home chat'}"><div class="message-content">${item.role === 'assistant' ? this.tools(item.tools) : ''}<p class="message-text ${item.error ? 'message-error' : ''}">${escape(item.text)}</p>${this.actionForm(item)}</div></article>`;
+    const components = item.role === 'assistant' ? renderDeviceCollections(item.components, item.id, { busy: this.busy, values: this.componentValues }) : '';
+    return `<article class="message ${item.role}" aria-label="${item.role === 'user' ? 'You' : 'Home chat'}"><div class="message-content">${item.role === 'assistant' ? this.tools(item.tools) : ''}<p class="message-text ${item.error ? 'message-error' : ''}">${escape(components && item.summary ? item.summary : item.text)}</p>${components}${this.actionForm(item)}</div></article>`;
   }
   render() {
     const messages = this.data?.thread.messages || [];
@@ -136,6 +138,7 @@ export class HomeChatPanel extends HTMLElement {
       <div class="sr-only" role="status" aria-live="polite">${this.error ? 'Chat needs attention.' : !this.busy && hasMessages ? 'Response ready.' : ''}</div>
       </main></div>`;
     const root = this.shadowRoot;
+    bindDeviceControls(root, { values: this.componentValues, submit: componentAction => this.request('send', { componentAction }, false) });
     root.querySelectorAll('[data-tool-details]').forEach(disclosure => disclosure.addEventListener('toggle', () => this.loadToolDetails(disclosure)));
     const menu = root.querySelector('ha-menu-button'); if (menu) { menu.hass = this._hass; menu.narrow = this._narrow; }
     root.querySelector('[data-sidebar]').onclick = () => { this.sidebar = !this.sidebar; this.render(); if (this.sidebar) root.querySelector('.sidebar [data-close]').focus(); };

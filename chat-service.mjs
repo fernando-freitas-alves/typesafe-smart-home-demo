@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { contextualizeChat, config } from './providers.mjs';
 import { redactDiagnostics } from './trace-utils.mjs';
+import { deviceCollection, deviceComponent, resolveComponentAction } from './chat-components.mjs';
 
 const approval = /^(?:yes(?: please)?|apply(?: all)?|confirm|go ahead|do it|ok(?:ay)?|sim|pode aplicar|confirmar)[.!\s]*$/i;
 const rejection = /^(?:no(?: thanks)?|cancel|never mind|nevermind|discard|stop|não|nao|cancelar)[.!\s]*$/i;
@@ -53,7 +54,14 @@ export class ChatService {
     }
     const requestId = input.requestId;
     if (requestId && thread.receipts.includes(requestId)) return this.response(data, thread, snapshot);
-    if (input.op === 'send') {
+    if (input.op === 'send' && input.componentAction) {
+      // A card click creates a new preview, never a physical write. Resolve its
+      // exact entity and capability again against this account's fresh inventory.
+      const action = resolveComponentAction(input.componentAction, thread, snapshot);
+      this.invalidate(thread); thread.waitingCommand = null;
+      thread.messages.push(message('user', action.text));
+      await this.preview(thread, action.text, signal, {}, action.call);
+    } else if (input.op === 'send') {
       if (typeof input.text !== 'string' || !input.text.trim() || input.text.length > 1500) throw new Error('Write a message between 1 and 1,500 characters.');
       const text = input.text.trim(); const pending = this.pending(thread);
       const history = thread.messages.slice(-10).map(item => ({ role: item.role, text: item.text, ...(item.form?.actions ? { proposedActions: item.form.actions.map(action => ({ name: action.name, room: action.roomName, action: action.label })) } : {}) }));
@@ -117,20 +125,23 @@ export class ChatService {
       threads: data.threads.filter(item => !item.archived).map(({ id, title, updatedAt }) => ({ id, title, updatedAt })).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
       thread: { id: thread.id, title: thread.title, location: thread.location, messages: thread.messages }, connected: true };
   }
-  async preview(thread, command, signal, context = {}) {
+  async preview(thread, command, signal, context = {}, manual) {
     try {
-      const result = await this.home.preview({ command, location: thread.location, context: 'devices' }, signal);
+      const result = await this.home.preview({ command, location: thread.location, context: 'devices', ...(manual ? { manual } : {}) }, signal);
       const tools = summarizeTools(result);
       if (context.durationMs !== undefined) tools.unshift(contextTool(context, command));
       if (result.planId) {
         for (const item of thread.messages) if (item.form?.kind === 'location') item.form.status = 'resolved';
         const rooms = [...new Set(result.actions.map(action => action.roomName))].join(', ');
         thread.messages.push(message('assistant', `Ready to make ${result.actions.length} ${result.actions.length === 1 ? 'change' : 'changes'} in ${rooms}. Review the actions, or tell me what to adjust.`, {
-          tools, command, form: { kind: 'actions', planId: result.planId, expiresAt: result.expiresAt, actions: result.actions, status: 'pending' },
+          tools, command, components: deviceCollection(result.queried, { capturedAt: result.updatedAt }),
+          form: { kind: 'actions', planId: result.planId, expiresAt: result.expiresAt, actions: result.actions.map(action => ({ ...action, component: deviceComponent(result.devices.find(device => device.entity_id === action.data.entity_id), { controls: false }) })), status: 'pending' },
         }));
       } else {
         const text = result.stages.filter(stage => ['response', 'result'].includes(stage.kind)).map(stage => stage.text).join('\n\n') || result.outcome;
-        thread.messages.push(message('assistant', text, { tools, command }));
+        const components = deviceCollection(result.queried, { capturedAt: result.updatedAt });
+        const summary = components.length ? `Here ${result.queried.length === 1 ? 'is the device you asked about' : 'are the devices you asked about'}.` : undefined;
+        thread.messages.push(message('assistant', text, { tools, command, components, summary }));
       }
     } catch (error) {
       const needsLocation = /Where I am|selected location|location is no longer|select.*room/i.test(error.message);
@@ -155,7 +166,7 @@ export class ChatService {
         const action = pending.form.actions.find(action => action.data.entity_id === call.data.entity_id);
         resultText.push(`${action?.name || call.data.entity_id}: ${call.after}${call.observed ? '' : ' (not confirmed)'}`);
       }
-      thread.messages.push(message('assistant', resultText.join('\n'), { tools: [{ name: 'Call Home Assistant', provider: 'Home Assistant', detail: result.calls.map(call => `${call.domain}.${call.service} → ${call.data.entity_id}`).join('\n'), status: result.error ? 'unconfirmed' : 'complete', diagnostics: { note: 'Service requests and returned entity states. Returned attributes are filtered; HTTP acceptance is not device-state confirmation.', request: result.calls.map(call => ({ method: 'POST', path: `/api/services/${call.domain}/${call.service}`, body: call.data })), response: result.calls.map(call => ({ entity_id: call.data.entity_id, status: call.status, body: call.response ?? null, error: call.error ?? null })) } }, { name: 'Check device states', provider: 'Home Assistant', detail: result.outcome, status: result.calls.every(call => call.observed) ? 'complete' : 'unconfirmed', diagnostics: { source: 'Application inventory adapter', request: { operation: 'inventory after service calls', entities: result.calls.map(call => call.data.entity_id) }, response: { outcome: result.outcome, devices: result.devices.filter(device => result.calls.some(call => call.data.entity_id === device.entity_id)), observed: result.calls.map(call => ({ entity_id: call.data.entity_id, observed: call.observed, state: call.after })) } } }], error: Boolean(result.error) }));
+      thread.messages.push(message('assistant', resultText.join('\n'), { summary: result.outcome, components: deviceCollection(result.devices.filter(device => result.calls.some(call => call.data.entity_id === device.entity_id)), { capturedAt: result.updatedAt, controls: false, calls: result.calls }), tools: [{ name: 'Call Home Assistant', provider: 'Home Assistant', detail: result.calls.map(call => `${call.domain}.${call.service} → ${call.data.entity_id}`).join('\n'), status: result.error ? 'unconfirmed' : 'complete', diagnostics: { note: 'Service requests and returned entity states. Returned attributes are filtered; HTTP acceptance is not device-state confirmation.', request: result.calls.map(call => ({ method: 'POST', path: `/api/services/${call.domain}/${call.service}`, body: call.data })), response: result.calls.map(call => ({ entity_id: call.data.entity_id, status: call.status, body: call.response ?? null, error: call.error ?? null })) } }, { name: 'Check device states', provider: 'Home Assistant', detail: result.outcome, status: result.calls.every(call => call.observed) ? 'complete' : 'unconfirmed', diagnostics: { source: 'Application inventory adapter', request: { operation: 'inventory after service calls', entities: result.calls.map(call => call.data.entity_id) }, response: { outcome: result.outcome, devices: result.devices.filter(device => result.calls.some(call => call.data.entity_id === device.entity_id)), observed: result.calls.map(call => ({ entity_id: call.data.entity_id, observed: call.observed, state: call.after })) } } }], error: Boolean(result.error) }));
     } catch (error) { pending.form.status = 'expired'; thread.messages.push(message('assistant', error.message, { error: true, tools: failedTool(error) })); }
   }
 }
