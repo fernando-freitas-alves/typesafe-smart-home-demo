@@ -31,7 +31,7 @@ The server reads `TYPESAFE_API_KEY` from the root `.env`. It rereads configurati
 **HA → Home chat** provides a ChatGPT-style conversation using HA’s login and theme. It works through the same local or remote HA address, with no laptop server needed.
 
 - Automatic HA identity; manual room/bathroom selection in each chat.
-- Saved, account-specific threads in a sidebar that starts collapsed.
+- Saved, account-specific threads in a collapsed sidebar with search, previews, date groups, and an Archived view.
 - Collapsed tool activity, action-selection forms, and follow-up messages.
 - Generative device cards with state readings, supported controls, and timestamped snapshots.
 - Review changes, then click **Apply selected** or reply **yes**. Typing a revision replaces the pending approval.
