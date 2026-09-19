@@ -34,7 +34,11 @@ The bridge listens only on `127.0.0.1:5189`. Do not publish that port or add an 
 - **History starts collapsed.** Open the chat-history icon to switch conversations or start a new one. Each HA account has its own saved chats. Chat options let you rename or archive a conversation; archived history stays in server storage.
 - **Tool details start collapsed.** Expand a tool row to see the operations, request, and available timing. Choose **Request & response** under a tool, then expand **Request**, **Response**, **Usage**, or **Attempts** to inspect and copy JSON. Jev details include the questions, context, returned probabilities, model, timing, and request ID when supplied. Full payloads are loaded only when opened. Older messages keep their summaries and explain when full details were not recorded. These are saved API/tool data, not model reasoning. Results distinguish a sent command from an observed device state.
 
+**Devices appear as interactive cards.** Ask “Which lights are on in my office?” or “What’s the temperature here?” to get light, climate, sensor, cover, media, and other device cards. Cards show a timestamped snapshot, not a live feed. Supported buttons, brightness/position sliders, and temperature/mode fields create a fresh review; they never apply immediately. Unavailable or read-only devices have no controls. Older text-only replies stay unchanged.
+
 Bathrooms and closets remain app-only spaces inside the original HA area. Name or alias their devices with `bathroom`, `washroom`, `banheiro`, `lavabo`, `closet`, or `dressing room`. HA rooms and presence automations do not need to change.
+
+The generative UI connects Jev-selected device results to a fixed component catalog (`chat-components.mjs` → `www/chat-components.js`). Messages save versioned `components` alongside their text fallback. Values come from HA; no model-generated HTML or JavaScript is executed. Card actions are bound to the owning chat and entity, rechecked against current capabilities and permissions, then use the same preview/approval flow as typed requests.
 
 ## Data and access
 

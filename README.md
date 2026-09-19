@@ -33,6 +33,7 @@ The server reads `TYPESAFE_API_KEY` from the root `.env`. It rereads configurati
 - Automatic HA identity; manual room/bathroom selection in each chat.
 - Saved, account-specific threads in a sidebar that starts collapsed.
 - Collapsed tool activity, action-selection forms, and follow-up messages.
+- Generative device cards with state readings, supported controls, and timestamped snapshots.
 - Review changes, then click **Apply selected** or reply **yes**. Typing a revision replaces the pending approval.
 
 [Install, run, update, and recover the native panel →](deployment/README.md)
