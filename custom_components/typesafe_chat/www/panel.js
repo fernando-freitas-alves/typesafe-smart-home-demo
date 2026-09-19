@@ -9,7 +9,7 @@ const statuses = { applied: 'Sent to Home Assistant', revised: 'Replaced by your
 export class HomeChatPanel extends HTMLElement {
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
-    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=8', import.meta.url); stylesheet.onload = () => this.scrollBottom();
+    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=9', import.meta.url); stylesheet.onload = () => this.scrollBottom();
     this.view = document.createElement('div'); this.view.style.display = 'contents'; this.shadowRoot.append(stylesheet, this.view);
     this.sidebar = false; this.historyMode = 'chats'; this.historyQuery = ''; this.historyNotice = null; this.busy = false; this.data = null; this.draft = ''; this.error = ''; this.started = false; this.selections = new Map(); this.toolDetails = new Map(); this.componentValues = new Map();
     this.onResize = () => {
@@ -38,9 +38,27 @@ export class HomeChatPanel extends HTMLElement {
     if (badge) { badge.hass = this._hass; badge.user = this._hass?.user; }
   }
   async start() { this.started = true; await this.request('bootstrap', {}, false); }
+  setSidebar(open, { focus = true } = {}) {
+    const root = this.shadowRoot;
+    const sidebar = root.querySelector('.sidebar');
+    // Establish the starting position even immediately after a chat render.
+    sidebar.getBoundingClientRect();
+    this.sidebar = Boolean(open);
+    root.querySelector('.layout').classList.toggle('sidebar-open', this.sidebar);
+    sidebar.inert = !this.sidebar;
+    const scrim = root.querySelector('.scrim');
+    scrim.inert = !this.sidebar;
+    scrim.setAttribute('aria-hidden', String(!this.sidebar));
+    root.querySelector('main').inert = this.sidebar && matchMedia('(max-width: 700px)').matches;
+    const toggle = root.querySelector('[data-sidebar]');
+    toggle.setAttribute('aria-expanded', String(this.sidebar));
+    toggle.setAttribute('aria-label', `${this.sidebar ? 'Close' : 'Open'} chat history`);
+    if (focus) (this.sidebar ? sidebar.querySelector('[data-close]') : toggle).focus({ preventScroll: true });
+  }
   async request(op, extra = {}, focus = true) {
     if (this.busy) return;
     const previousDraft = this.draft; const previousThreadId = this.data?.thread.id;
+    let closeSidebar = false;
     const preserveView = op === 'archive' && extra.targetThreadId !== previousThreadId;
     const scrollTop = this.shadowRoot.querySelector('.scroll-area')?.scrollTop || 0;
     const historyScrollTop = this.shadowRoot.querySelector('.sidebar nav')?.scrollTop || 0;
@@ -63,12 +81,12 @@ export class HomeChatPanel extends HTMLElement {
         this.historyNotice = { text: extra.archived === false ? 'Chat restored' : 'Chat archived', undoId: extra.archived === false ? null : extra.targetThreadId || previousThreadId };
         if (extra.archived === false) { this.historyMode = 'chats'; this.historyQuery = ''; }
       }
-      if (['new', 'open'].includes(op) && matchMedia('(max-width: 700px)').matches) this.sidebar = false;
+      closeSidebar = ['new', 'open'].includes(op) && matchMedia('(max-width: 700px)').matches;
       return result;
     } catch (error) {
       this.error = error.body?.message || error.body?.error || error.message || 'Could not reach Home chat. Reopen the chat to check its latest result.';
       if (op === 'send') this.draft ||= previousDraft;
-    } finally { this.busy = false; this.pendingText = ''; this.render(); position(); if (focus && !matchMedia('(pointer: coarse)').matches) this.shadowRoot.querySelector('textarea')?.focus(); }
+    } finally { this.busy = false; this.pendingText = ''; this.render(); position(); if (closeSidebar) this.setSidebar(false, { focus: false }); if (focus && !matchMedia('(pointer: coarse)').matches) this.shadowRoot.querySelector('textarea')?.focus(); }
   }
   expireForms() {
     for (const item of this.data?.thread.messages || []) {
@@ -155,7 +173,7 @@ export class HomeChatPanel extends HTMLElement {
     const archived = this.data?.thread.archived;
     const hasMessages = messages.length > 0 || Boolean(this.pendingText) || archived;
     this.view.innerHTML = `<div class="layout ${this.sidebar ? 'sidebar-open' : ''}">
-      ${this.sidebar ? `<button class="scrim" aria-label="Close chat history" data-close></button>` : ''}
+      <button type="button" class="scrim" aria-label="Close chat history" aria-hidden="${!this.sidebar}" ${!this.sidebar ? 'inert' : ''} data-close></button>
       <aside class="sidebar" aria-label="Chat history" ${!this.sidebar ? 'inert' : ''}>
         <div class="sidebar-top"><strong>Your chats</strong><div class="sidebar-actions"><button class="icon-button new-chat" title="New chat" aria-label="New chat" data-new ${this.busy ? 'disabled' : ''}>${icon('plus')}</button><button class="icon-button" title="Close chat history" aria-label="Close chat history" data-close>${icon('dock-left')}</button></div></div>
         <label class="history-search">${icon('magnify')}<span class="sr-only">Search chats</span><input type="search" name="chat-search" autocomplete="off" placeholder="Search chats" value="${escape(this.historyQuery)}" data-history-search></label>
@@ -175,8 +193,8 @@ export class HomeChatPanel extends HTMLElement {
     const menu = root.querySelector('ha-menu-button'); if (menu) { menu.hass = this._hass; menu.narrow = this._narrow; }
     this.updateAccountBadge();
     root.querySelector('[data-ai-settings]').onclick = () => openAiSettings(this);
-    root.querySelector('[data-sidebar]').onclick = () => { this.sidebar = !this.sidebar; this.render(); if (this.sidebar) root.querySelector('.sidebar [data-close]').focus(); };
-    root.querySelectorAll('[data-close]').forEach(button => button.onclick = () => { this.sidebar = false; this.render(); root.querySelector('[data-sidebar]').focus(); });
+    root.querySelector('[data-sidebar]').onclick = () => this.setSidebar(!this.sidebar);
+    root.querySelectorAll('[data-close]').forEach(button => button.onclick = () => this.setSidebar(false));
     root.querySelectorAll('[data-new]').forEach(button => button.onclick = () => this.request('new'));
     this.bindHistory(root);
     root.querySelector('[data-history-search]').oninput = event => { this.historyQuery = event.target.value; this.updateHistory(); };
@@ -202,7 +220,7 @@ export class HomeChatPanel extends HTMLElement {
       root.querySelector('.composer').onsubmit = event => { event.preventDefault(); this.send(); };
       requestAnimationFrame(resize);
     }
-    root.onkeydown = event => { if (event.key === 'Escape' && this.sidebar) { this.sidebar = false; this.render(); root.querySelector('[data-sidebar]').focus(); } };
+    root.onkeydown = event => { if (event.key === 'Escape' && this.sidebar) this.setSidebar(false); };
     requestAnimationFrame(() => { const scroll = this.shadowRoot.querySelector('.scroll-area'); if (scroll) scroll.scrollTop = previousScrollTop; });
   }
   send() {
@@ -223,8 +241,8 @@ export class HomeChatPanel extends HTMLElement {
   }
   async archiveThread(id, archived = true) {
     if (this.busy) return;
-    if (archived) this.sidebar = true;
     const result = await this.request('archive', { targetThreadId: id, archived }, false);
+    if (result && archived) this.setSidebar(true, { focus: false });
     if (result && (this.sidebar || !matchMedia('(pointer: coarse)').matches)) (this.shadowRoot.querySelector('[data-history-undo]') || (this.sidebar ? this.shadowRoot.querySelector('[data-history-view][aria-pressed="true"]') : this.shadowRoot.querySelector('textarea')))?.focus({ preventScroll: true });
   }
   rename() {
