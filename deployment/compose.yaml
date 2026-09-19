@@ -1,6 +1,7 @@
 services:
   typesafe-chat:
-    image: node:22-alpine
+    build: .
+    image: home-chat:chatgpt
     container_name: typesafe-chat
     restart: unless-stopped
     network_mode: host
@@ -9,6 +10,7 @@ services:
     env_file: runtime.env
     environment:
       CHAT_DATA_DIR: /data
+      LLM_PROVIDER: chatgpt
       CHAT_PORT: '5189'
       CHAT_HA_URL: http://127.0.0.1:8123
     volumes:

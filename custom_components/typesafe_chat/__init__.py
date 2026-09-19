@@ -88,9 +88,44 @@ class ChatView(HomeAssistantView):
             return self.json({"error": "Home chat is unavailable. Reopen the chat to recover its latest result before repeating an action."}, status_code=503)
 
 
+class AiSettingsView(HomeAssistantView):
+    url = "/api/typesafe_chat/llm"
+    name = "api:typesafe_chat:llm"
+    requires_auth = True
+
+    def __init__(self, hass, config):
+        self.hass, self.config = hass, config
+
+    async def post(self, request):
+        user = request["hass_user"]
+        if request.content_length and request.content_length > 2000:
+            return self.json({"error": "Settings request is too large."}, status_code=413)
+        try:
+            value = await request.json()
+        except (ValueError, web.HTTPRequestEntityTooLarge):
+            return self.json({"error": "Use a valid settings request."}, status_code=400)
+        if not isinstance(value, dict) or value.get("op") not in {"status", "connect", "cancel", "disconnect", "model"}:
+            return self.json({"error": "Unknown settings operation."}, status_code=400)
+        if value["op"] != "status" and not user.is_admin:
+            return self.json({"error": "Only a Home Assistant administrator can change shared AI settings."}, status_code=403)
+        # No client-supplied roles, credentials, or arbitrary Codex RPC methods.
+        payload = {"actor": {"id": user.id, "isAdmin": user.is_admin}, "input": value}
+        try:
+            async with async_get_clientsession(self.hass).post(
+                self.config["backend_url"].rstrip("/") + "/llm", json=payload,
+                headers={"Authorization": "Bearer " + self.config["bridge_token"]},
+                timeout=aiohttp.ClientTimeout(total=45), allow_redirects=False,
+            ) as response:
+                result = await response.json()
+                return self.json(result, status_code=response.status, headers={"Cache-Control": "no-store"})
+        except (aiohttp.ClientError, TimeoutError, ValueError):
+            return self.json({"error": "AI settings are unavailable. Please try again."}, status_code=503)
+
+
 async def async_setup(hass, config):
     settings = config[DOMAIN]
     hass.http.register_view(ChatView(hass, settings))
+    hass.http.register_view(AiSettingsView(hass, settings))
     await hass.http.async_register_static_paths([StaticPathConfig("/typesafe-chat", str(Path(__file__).parent / "www"), False)])
     await async_register_panel(hass, frontend_url_path="home-chat", webcomponent_name="typesafe-chat-panel", sidebar_title="Home chat", sidebar_icon="mdi:chat-outline", module_url="/typesafe-chat/panel.js?v=1", config={}, require_admin=False)
     return True

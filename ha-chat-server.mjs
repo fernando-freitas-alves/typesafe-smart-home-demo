@@ -7,14 +7,15 @@ import { LiveHome } from './live-engine.mjs';
 import { ChatStore } from './chat-store.mjs';
 import { ChatService } from './chat-service.mjs';
 import { ChatApi, CHAT_OPERATIONS } from './chat-api.mjs';
+import { sharedLlm } from './llm-settings.mjs';
 
 const operations = new Set(CHAT_OPERATIONS);
-export function createChatBridge({ secret, directory = './.local/chats', haUrl = 'http://127.0.0.1:8123', makeSession } = {}) {
+export function createChatBridge({ secret, directory = './.local/chats', haUrl = 'http://127.0.0.1:8123', makeSession, llm = sharedLlm() } = {}) {
   if (typeof secret !== 'string' || secret.length < 32) throw new Error('CHAT_BRIDGE_TOKEN must contain at least 32 characters.');
   const sessions = new Map(); const store = new ChatStore(directory);
   const send = (res, code, value) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); };
   return createServer(async (req, res) => {
-    if (req.method !== 'POST' || req.url !== '/chat') return send(res, 404, { error: 'Not found.' });
+    if (req.method !== 'POST' || !['/chat', '/llm'].includes(req.url)) return send(res, 404, { error: 'Not found.' });
     const supplied = Buffer.from(req.headers.authorization?.replace(/^Bearer /, '') || ''); const expected = Buffer.from(secret);
     if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return send(res, 401, { error: 'Unauthorized.' });
     let session; let timer; let input;
@@ -23,6 +24,10 @@ export function createChatBridge({ secret, directory = './.local/chats', haUrl =
       for await (const chunk of req) { body += chunk.toString(); if (Buffer.byteLength(body) > 2000000) return send(res, 413, { error: 'Request too large.' }); }
       const payload = JSON.parse(body);
       const { actor, inventory, accessToken } = payload; input = payload.input;
+      if (req.url === '/llm') {
+        if (!actor || typeof actor.id !== 'string' || !actor.id) return send(res, 400, { error: 'Invalid authenticated settings request.' });
+        return send(res, 200, await llm.handle(input, actor));
+      }
       if (!actor || typeof actor.id !== 'string' || !actor.id || typeof actor.name !== 'string' || !operations.has(input?.op) || !Array.isArray(inventory?.states) || !Array.isArray(inventory?.controlEntities) || typeof accessToken !== 'string' || !accessToken) return send(res, 400, { error: 'Invalid authenticated chat request.' });
       session = sessions.get(actor.id);
       if (!session) {

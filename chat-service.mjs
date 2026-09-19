@@ -15,7 +15,7 @@ function stageTool(stage) {
     ...(stage.diagnostics ? { diagnostics: { ...stage.diagnostics, ...(stage.used ? { usedQuestions: stage.used } : {}) } } : {}) };
 }
 function contextTool(context, command) {
-  return { name: 'Interpret follow-up', provider: 'Anthropic', detail: command, durationMs: context.durationMs, model: context.model, usage: context.usage, diagnostics: context.diagnostics, status: 'complete' };
+  return { name: 'Interpret follow-up', provider: context.provider || 'Anthropic', detail: command, durationMs: context.durationMs, model: context.model, usage: context.usage, diagnostics: context.diagnostics, status: 'complete' };
 }
 function failedTool(error) {
   return error.diagnostics ? [{ name: 'Provider request', provider: error.diagnostics.provider, detail: error.message, durationMs: error.diagnostics.durationMs, status: 'failed', diagnostics: error.diagnostics }] : [];
