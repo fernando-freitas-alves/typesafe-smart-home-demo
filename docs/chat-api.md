@@ -65,9 +65,9 @@ All requests contain `apiVersion: 1`, `op`, and `client`. A web client is `{kind
 | Operation | Extra fields | Result |
 | --- | --- | --- |
 | `bootstrap` | Optional `threadId` for web | Discover rooms and capabilities; web also restores its selected chat. Voice discovery does not select a chat. |
-| `new` | Optional `location` | Create a conversation and return its ID. No existing `threadId`. |
+| `new` | Optional `location`, `model` | Create a conversation and return its ID. No existing `threadId`. |
 | `open` | Optional `toolDetailsId` | Read saved history, or a saved tool payload owned by this conversation. |
-| `send` | `text` **or** `componentAction`; optional `confirmationId`, `selected` | Interpret a message or preview a saved card action. |
+| `send` | `text` **or** `componentAction`; optional `confirmationId`, `selected`, `model` | Interpret a message or preview a saved card action. |
 | `apply` | `messageId`, `selected` action indexes | Apply only the current reviewed proposal. |
 | `cancel` | None | Cancel the current proposal. |
 | `location` | `location` ID, or `""` to clear | Change exact room/space; may resume a location question. |
@@ -131,8 +131,12 @@ The next adapter maps **recognized speech → `send`**, **`reply.speech` → TTS
 
 ## Shared language-model settings
 
-Web and future voice requests use the same server-side ChatGPT connection and selected model. Devices never receive its token. HA administrators manage it through **Home chat → AI settings**.
+Web and future voice requests share the server-side ChatGPT connection. Each conversation can choose its own model; only HA administrators manage the connection and home default through **Home chat → AI settings**. Devices never receive its token.
 
-`POST /api/typesafe_chat/llm` accepts `{ "apiVersion": 1, "op": "status" }` using the caller’s normal HA bearer token. It returns connection state, shared model selection, resolved model, reasoning effort, and `canManage`. Only admins receive account details, available model options, or pending device-code login data.
+`POST /api/typesafe_chat/llm` accepts `{ "apiVersion": 1, "op": "status" }` using the caller’s normal HA bearer token. It returns connection state, shared model selection, resolved model, reasoning effort, and `canManage`. Every authenticated user receives the safe `models` catalog (`id`, `name`, `description`). Only admins receive account details or pending device-code login data.
 
-Admin operations on that endpoint: `connect`, `cancel`, `disconnect`, and `model` with `model: "auto"` or a catalog ID. Unsupported fields and non-admin mutations are rejected. It is an application settings API, not an arbitrary Codex RPC proxy. The conversation API and approval rules are unchanged. Subscription failures never trigger a paid API fallback.
+Admin operations on that endpoint: `connect`, `cancel`, `disconnect`, and `model` with `model: "auto"` or a catalog ID. Unsupported fields and non-admin mutations are rejected. It is an application settings API, not an arbitrary Codex RPC proxy. Approval rules are unchanged. Subscription failures never trigger a paid API fallback.
+
+**Per-chat selection:** pass `model` on `new` or an ordinary text `send`: a catalog ID, `"auto"` for the fast preset, or `"default"` for the home default. The choice is validated and saved in the owning user’s conversation, returned in `thread.model` and `conversation.model`, and reused by follow-up interpretation, splitting, and general answers. Omit it to keep the saved choice. Existing chats default to `"default"`. Invalid or unavailable models fail explicitly without switching to a paid provider. Device-card actions, approvals, and cancellations do not change the model or require an active LLM connection.
+
+The web composer applies a selection to the next text message and saves it when sent; simply browsing models sends no message. Model changes do not affect other conversations or the shared home default.

@@ -136,9 +136,9 @@ export class LiveHome {
       stages.push(initial);
       const first = planLiveDecision(initial, devices, user);
       initial.used = first.used; plans = [first];
-      if (first.intent === 'information_request') stages.push(await this.dependencies.answerQuestion(command, signal, user));
+      if (first.intent === 'information_request') stages.push(await this.dependencies.answerQuestion(command, signal, user, input.model));
       else if (first.intent === 'compound') {
-        const split = await this.dependencies.splitCommand(command, signal, user); stages.push(split);
+        const split = await this.dependencies.splitCommand(command, signal, user, input.model); stages.push(split);
         const time = performance.now(); const evaluated = await Promise.all(split.commands.map(evaluate)); const parallelDurationMs = Math.round(performance.now() - time);
         plans = evaluated.map(stage => planLiveDecision(stage, devices, user));
         if (plans.some(p => !['smarthome_query', 'smarthome_command'].includes(p.intent))) throw new Error('A sub-command needs clarification. Send it separately. No devices were changed.');

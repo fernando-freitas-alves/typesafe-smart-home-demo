@@ -32,13 +32,35 @@ test('automatic model prefers the fast model and lightest supported effort', () 
   assert.equal(chooseFastModel(models).model, 'gpt-5.6-luna'); assert.equal(lightestEffort(models[1]), 'low');
   assert.equal(chooseFastModel([models[0]]).model, 'gpt-5.6-sol'); assert.equal(chooseFastModel([]), undefined);
 });
-test('shared model persists privately and applies to every account', async t => {
+test('shared default persists privately while all users can read the safe model catalog', async t => {
   const { llm, directory, provider } = await setup(t);
   await llm.handle({ apiVersion: 1, op: 'model', model: models[0].model }, { id: 'admin', isAdmin: true });
   const reader = new LlmSettings({ directory, provider }); const state = await reader.status(false);
-  assert.equal(state.model, models[0].model); assert.equal(state.canManage, false); assert.equal(state.account, undefined); assert.equal(state.models, undefined);
+  assert.equal(state.model, models[0].model); assert.equal(state.canManage, false); assert.equal(state.account, undefined);
+  assert.deepEqual(state.models.map(model => model.id), models.map(model => model.model));
+  assert.equal(state.login, undefined); assert.ok(!JSON.stringify(state).includes('must-not-leak'));
   assert.equal((await stat(llm.path)).mode & 0o777, 0o600); assert.deepEqual(JSON.parse(await readFile(llm.path, 'utf8')), { model: models[0].model });
   await reader.complete('Hello', 'Be brief'); assert.equal(provider.generations[0].model, models[0].model);
+});
+test('concurrent per-chat choices reach the provider without changing the shared default', async t => {
+  const { llm, provider } = await setup(t);
+  await llm.handle({ apiVersion: 1, op: 'model', model: models[0].model }, { isAdmin: true });
+  await Promise.all([
+    llm.complete('Chat one', 'Brief', undefined, models[0].model),
+    llm.complete('Chat two', 'Brief', undefined, models[1].model),
+    llm.complete('Fast choice', 'Brief', undefined, 'auto'),
+    llm.complete('Home default', 'Brief'),
+  ]);
+  assert.deepEqual(Object.fromEntries(provider.generations.map(g => [g.command, g.model])), {
+    'Chat one': models[0].model, 'Chat two': models[1].model, 'Fast choice': models[1].model, 'Home default': models[0].model,
+  });
+  assert.equal((await llm.saved()).model, models[0].model);
+  await assert.rejects(llm.validateModel('unknown-model'), /unavailable/);
+  await assert.rejects(llm.complete('Invalid', 'Brief', undefined, 'unknown-model'), /no longer available/);
+  assert.equal(provider.generations.length, 4);
+  provider.account = null;
+  await assert.rejects(llm.validateModel(models[0].model), /Connect ChatGPT/);
+  await llm.validateModel('default');
 });
 test('non-admin cannot connect, disconnect, change models, or cancel sign-in', async t => {
   const { llm, provider } = await setup(t);

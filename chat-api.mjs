@@ -5,8 +5,8 @@ export const API_VERSION = 1;
 export const CHAT_OPERATIONS = ['bootstrap', 'new', 'open', 'send', 'apply', 'cancel', 'location', 'rename', 'archive'];
 const writes = new Set(CHAT_OPERATIONS.filter(op => !['bootstrap', 'open'].includes(op)));
 const fields = {
-  bootstrap: [], new: ['location'], open: ['toolDetailsId'],
-  send: ['text', 'componentAction', 'selected', 'confirmationId'],
+  bootstrap: [], new: ['location', 'model'], open: ['toolDetailsId'],
+  send: ['text', 'componentAction', 'selected', 'confirmationId', 'model'],
   apply: ['messageId', 'selected'], cancel: [], location: ['location'],
   rename: ['title'], archive: ['targetThreadId', 'archived'],
 };
@@ -34,6 +34,7 @@ export function validateChatRequest(input) {
   if ((writes.has(input.op) || input.requestId !== undefined) && !id(input.requestId)) fail('request_id_required', 'Mutations need a unique requestId. Reuse it only when recovering the same request.');
   for (const key of ['toolDetailsId', 'messageId', 'targetThreadId', 'confirmationId']) if (input[key] !== undefined && !id(input[key])) fail('invalid_request', `Invalid ${key}.`);
   if (input.location !== undefined && (typeof input.location !== 'string' || input.location.length > 200)) fail('invalid_request', 'location must be an ID returned in rooms.');
+  if (input.model !== undefined && (typeof input.model !== 'string' || !input.model || input.model.length > 150)) fail('invalid_request', 'Choose a model ID from the model catalog, auto, or default.');
   if (input.op === 'location' && input.location === undefined) fail('invalid_request', 'Choose a location from rooms.');
   if (input.text !== undefined && typeof input.text !== 'string') fail('invalid_request', 'text must be a string.');
   if (input.op === 'send' && ((input.text !== undefined) === (input.componentAction !== undefined))) fail('invalid_request', 'Supply text or componentAction, but not both.');
@@ -74,7 +75,7 @@ export class ChatApi {
   envelope(result, input, options = {}) {
     return { ...result, apiVersion: API_VERSION, requestId: input.requestId || null, replayed: Boolean(options.replayed),
       capabilities: { operations: CHAT_OPERATIONS, clients: ['web', 'voice'], componentVersion: 1, requestRetentionHours: 24, requestLimit: recordLimit },
-      conversation: result.thread ? { id: result.thread.id, location: result.thread.location, archived: result.thread.archived, source: result.thread.source,
+      conversation: result.thread ? { id: result.thread.id, location: result.thread.location, model: result.thread.model, archived: result.thread.archived, source: result.thread.source,
         speaker: result.thread.source?.kind === 'voice' ? { known: false, name: null } : { known: true, name: result.user.name } } : undefined,
       reply: options.replayed ? null : conversationReply(result, { speak: ['send', 'apply', 'cancel', 'location'].includes(input.op) }) };
   }

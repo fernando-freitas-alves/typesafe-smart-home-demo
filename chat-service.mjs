@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { contextualizeChat, config } from './providers.mjs';
 import { redactDiagnostics } from './trace-utils.mjs';
 import { deviceCollection, deviceComponent, resolveComponentAction } from './chat-components.mjs';
+import { sharedLlm } from './llm-settings.mjs';
 
 const approval = /^(?:yes(?: please)?|apply(?: all)?|confirm|go ahead|do it|ok(?:ay)?|sim|pode aplicar|confirmar)[.!\s]*$/i;
 export const isApproval = text => typeof text === 'string' && approval.test(text);
@@ -27,7 +28,7 @@ function summarizeTools(result) {
   } }, ...result.stages.filter(stage => stage.kind !== 'result').map(stageTool)];
 }
 export class ChatService {
-  constructor({ home, store, actor, resolve = contextualizeChat }) { this.home = home; this.store = store; this.actor = actor; this.resolve = resolve; }
+  constructor({ home, store, actor, resolve = contextualizeChat, llm = sharedLlm() }) { this.home = home; this.store = store; this.actor = actor; this.resolve = resolve; this.llm = llm; }
   invalidate(thread, status = 'revised') {
     for (const item of thread.messages) if (item.form?.status === 'pending') { this.home.pending.delete(item.form.planId); item.form.status = status; }
   }
@@ -48,6 +49,14 @@ export class ChatService {
       thread = newThread();
       if (input.apiVersion === 1) thread.source = { ...input.client };
       data.threads.unshift(thread);
+    }
+    if (input.model !== undefined) {
+      if (!['new', 'send'].includes(input.op)) throw new Error('Model selection belongs to a new chat or message.');
+      // Approvals/cancellations and card controls must still work if ChatGPT is offline.
+      if (input.op === 'new' || (typeof input.text === 'string' && !approval.test(input.text.trim()) && !rejection.test(input.text.trim()))) {
+        await this.llm.validateModel(input.model);
+        thread.model = input.model;
+      }
     }
     const snapshot = await this.home.snapshot(signal);
     if (input.op === 'new' && input.location !== undefined) {
@@ -82,7 +91,7 @@ export class ChatService {
       else {
         this.invalidate(thread); thread.waitingCommand = null;
         try {
-          const resolved = await this.resolve(text, history, signal);
+          const resolved = await this.resolve(text, history, signal, thread.model || 'default');
           if (resolved.clarification) thread.messages.push(message('assistant', resolved.clarification, { expectsReply: true, tools: resolved.diagnostics ? [contextTool(resolved, text)] : [] }));
           else await this.preview(thread, resolved.command, signal, resolved);
         } catch (error) { thread.messages.push(message('assistant', error.message, { error: true, tools: failedTool(error) })); }
@@ -147,11 +156,11 @@ export class ChatService {
     return { user: { id: this.actor.id, name: this.actor.name }, rooms: snapshot.rooms,
       threads: data.threads.filter(item => !item.archived).map(summary).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
       archivedThreads: data.threads.filter(item => item.archived).map(summary).sort((a, b) => (b.archivedAt || b.updatedAt).localeCompare(a.archivedAt || a.updatedAt)),
-      thread: { id: thread.id, title: thread.title, location: thread.location, messages: thread.messages, archived: Boolean(thread.archived), source: thread.source || { kind: 'web' } }, connected: true };
+      thread: { id: thread.id, title: thread.title, location: thread.location, model: thread.model || 'default', messages: thread.messages, archived: Boolean(thread.archived), source: thread.source || { kind: 'web' } }, connected: true };
   }
   async preview(thread, command, signal, context = {}, manual) {
     try {
-      const result = await this.home.preview({ command, location: thread.location, anonymous: thread.source?.kind === 'voice', context: 'devices', ...(manual ? { manual } : {}) }, signal);
+      const result = await this.home.preview({ command, location: thread.location, model: thread.model || 'default', anonymous: thread.source?.kind === 'voice', context: 'devices', ...(manual ? { manual } : {}) }, signal);
       const tools = summarizeTools(result);
       if (context.durationMs !== undefined) tools.unshift(contextTool(context, command));
       if (result.planId) {

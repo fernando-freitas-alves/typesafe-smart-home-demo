@@ -594,6 +594,12 @@
               "name"
             ],
             "additionalProperties": false
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 150,
+            "description": "Per-conversation ChatGPT model ID from the model catalog. auto uses the fastest preset; default follows the shared home default. Omit on send to retain the saved choice. Applies to ordinary text, not approvals, cancellations, or device-card controls."
           }
         },
         "required": [
@@ -791,6 +797,12 @@
             "type": "string",
             "maxLength": 200,
             "description": "Exact rooms[].id, including app bathroom/closet spaces; empty string clears selection."
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 150,
+            "description": "Per-conversation ChatGPT model ID from the model catalog. auto uses the fastest preset; default follows the shared home default. Omit on send to retain the saved choice. Applies to ordinary text, not approvals, cancellations, or device-card controls."
           }
         },
         "required": [
@@ -886,6 +898,12 @@
             },
             "minItems": 0,
             "uniqueItems": true
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 150,
+            "description": "Per-conversation ChatGPT model ID from the model catalog. auto uses the fastest preset; default follows the shared home default. Omit on send to retain the saved choice. Applies to ordinary text, not approvals, cancellations, or device-card controls."
           }
         },
         "required": [
@@ -1208,7 +1226,8 @@
                   "type": "string"
                 }
               }
-            }
+            },
+            "description": "Safe model catalog available to every authenticated HA user; account and sign-in details remain admin-only."
           },
           "login": {
             "type": [

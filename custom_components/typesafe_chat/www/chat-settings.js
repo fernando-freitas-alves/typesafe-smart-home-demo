@@ -7,6 +7,7 @@ export function openAiSettings(panel) {
   if (root.querySelector('.ai-settings')) return;
   const dialog = document.createElement('dialog'); dialog.className = 'ai-settings'; dialog.setAttribute('aria-labelledby', 'ai-settings-title');
   root.append(dialog); let state; let busy = false; let error = ''; let poll; let closed = false;
+  const account = panel._hass?.user?.id;
   const close = () => { closed = true; clearTimeout(poll); dialog.remove(); root.querySelector('[data-ai-settings]')?.focus(); };
   dialog.addEventListener('close', close); dialog.addEventListener('cancel', event => { event.preventDefault(); dialog.close(); });
   const render = () => {
@@ -21,8 +22,8 @@ export function openAiSettings(panel) {
         ${state.canManage && !state.login ? `<button class="${state.connected ? 'text-button' : 'primary'}" data-settings-${state.connected ? 'disconnect' : 'connect'} ${busy ? 'disabled' : ''}>${state.connected ? 'Disconnect ChatGPT' : 'Connect ChatGPT'}</button>` : ''}
         ${state.error ? `<p class="settings-error" role="alert">${escape(state.error)}</p>` : ''}
       </section>
-      <section class="settings-model"><label for="shared-model">Model for everyone</label><select id="shared-model" ${!state.canManage || !state.connected || busy ? 'disabled' : ''}><option value="auto" ${state.model === 'auto' ? 'selected' : ''}>Auto · fastest preset</option>${(state.models || []).map(model => `<option value="${escape(model.id)}" ${state.model === model.id ? 'selected' : ''}>${escape(model.name)}</option>`).join('')}${state.model !== 'auto' && !(state.models || []).some(model => model.id === state.model) ? `<option selected value="${escape(state.model)}">${escape(state.model)}</option>` : ''}</select><p>${state.connected ? state.modelUnavailable ? 'This model is unavailable. Choose Auto or another model.' : `Using ${escape(state.modelName || state.resolvedModel)} · ${escape(state.effort)} reasoning.` : 'Connect ChatGPT to load your available models.'} Auto prefers a fast model with light reasoning.</p></section>
-      ${!state.canManage ? '<p class="settings-note">An HA administrator manages this shared connection and model.</p>' : ''}
+      <section class="settings-model"><label for="shared-model">Home default model</label><select id="shared-model" ${!state.canManage || !state.connected || busy ? 'disabled' : ''}><option value="auto" ${state.model === 'auto' ? 'selected' : ''}>Auto · fastest preset</option>${(state.models || []).map(model => `<option value="${escape(model.id)}" ${state.model === model.id ? 'selected' : ''}>${escape(model.name)}</option>`).join('')}${state.model !== 'auto' && !(state.models || []).some(model => model.id === state.model) ? `<option selected value="${escape(state.model)}">${escape(state.model)}</option>` : ''}</select><p>${state.connected ? state.modelUnavailable ? 'This model is unavailable. Choose Auto or another model.' : `Using ${escape(state.modelName || state.resolvedModel)} · ${escape(state.effort)} reasoning.` : 'Connect ChatGPT to load your available models.'} Auto prefers a fast model with light reasoning.</p></section>
+      ${!state.canManage ? '<p class="settings-note">An HA administrator manages the shared connection and default. Choose a model for your own chat beside the message box.</p>' : ''}
       <p class="settings-note">The sign-in stays on your HA server. No LLM API key or paid fallback. Jev still needs its separate TypeSafe key.</p>` : '<p class="settings-loading" role="status">Loading AI settings…</p>'}
       <div class="settings-footer"><span role="status">${busy ? 'Updating…' : ''}</span><button class="text-button" data-settings-refresh ${busy ? 'disabled' : ''}>Refresh</button></div>`;
     dialog.querySelector('[data-settings-close]').onclick = () => dialog.close();
@@ -37,8 +38,10 @@ export function openAiSettings(panel) {
     const previous = JSON.stringify(state);
     try {
       const result = await panel._hass.callApi('POST', 'typesafe_chat/llm', { apiVersion: 1, op, ...extra });
+      if (closed || panel._hass?.user?.id !== account) return;
       if (result.error && !('connected' in result)) throw new Error(result.error);
       state = result;
+      panel.modelState = result; panel.modelError = ''; panel.updateModelPicker();
     } catch (reason) { error = reason.body?.error || reason.message || 'Could not reach AI settings.'; }
     finally {
       busy = false;

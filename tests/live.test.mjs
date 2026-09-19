@@ -31,6 +31,17 @@ function fakeClient(raw = fixture()) {
 }
 const manual = (entity_id = 'light.study', service = 'turn_on', extra = {}) => ({ domain: entity_id.split('.')[0], service, data: { entity_id, ...extra } });
 const create = client => new LiveHome({ client, settings: () => ({}), settleMs: 0 });
+test('the chosen chat model reaches general answers and compound splitting', async () => {
+  const received = [];
+  const home = new LiveHome({ client: fakeClient(), settings: () => ({}), dependencies: {
+    async evaluate(command, devices) { return stage(devices, command === 'question' ? { intent: 'information_request' } : command === 'compound' ? { compound: 1 } : {}, command); },
+    async answerQuestion(command, signal, user, model) { received.push(['answer', model]); return { kind: 'response', text: 'Answer' }; },
+    async splitCommand(command, signal, user, model) { received.push(['split', model]); return { kind: 'split', commands: ['first', 'second'] }; },
+  } });
+  await home.preview({ command: 'question', model: 'model-for-answer' });
+  await home.preview({ command: 'compound', model: 'model-for-split' });
+  assert.deepEqual(received, [['answer', 'model-for-answer'], ['split', 'model-for-split']]);
+});
 function stage(devices, values = {}, command = 'Turn on the study light') {
   const questions = buildLiveQuestions(devices);
   const selected = { intent: 'smarthome_command', scope: 'specific_device', device_type: 'light', device: 'light__study', room: 'study', light_action: 'turn_on', ...values };

@@ -47,8 +47,8 @@ export class LlmSettings {
       model: saved.model, resolvedModel: selected?.model || null, modelName: selected?.displayName || null,
       effort: selected ? lightestEffort(selected) : null,
       modelUnavailable: connected && !selected,
+      models: models.map(model => ({ id: model.model, name: model.displayName, description: model.description })),
       ...(admin ? { account: connected ? { email: account.email, plan: account.planType } : null,
-        models: models.map(model => ({ id: model.model, name: model.displayName, description: model.description })),
         login: this.login ? { verificationUrl: this.login.verificationUrl, userCode: this.login.userCode, expiresAt: this.login.expiresAt } : null,
         error: this.loginError || null } : {}),
     };
@@ -82,19 +82,30 @@ export class LlmSettings {
     };
     const result = this.queue.then(work, work); this.queue = result.catch(() => {}); return result;
   }
-  async complete(command, system, signal) {
+  async validateModel(model) {
+    if (typeof model !== 'string' || !model || model.length > 150) fail('Choose an available model.');
+    if (model === 'default') return;
+    const state = await this.status();
+    if (!state.connected) fail('Connect ChatGPT in AI settings before choosing a model.');
+    if (model === 'auto' ? !state.models.length : !state.models.some(option => option.id === model)) fail('That model is unavailable. Refresh the model list.');
+  }
+  async complete(command, system, signal, model = 'default') {
     const started = performance.now();
     const state = await this.status();
     if (!state.connected) fail('Connect ChatGPT once in Home chat → AI settings. An HA administrator can share the connection with this home.');
-    if (state.modelUnavailable) fail('The selected model is no longer available. Choose Auto or another model in AI settings.');
+    const catalog = await this.models();
+    const selection = model === 'default' ? state.model : model;
+    const selected = selection === 'auto' ? chooseFastModel(catalog) : catalog.find(item => item.model === selection);
+    if (!selected) fail('The selected model is no longer available. Choose Auto or another model beside the message box.');
+    const effort = lightestEffort(selected);
     this.active++;
     try {
-      const result = await this.provider.complete({ model: state.resolvedModel, effort: state.effort, command, system, signal });
+      const result = await this.provider.complete({ model: selected.model, effort, command, system, signal });
       const durationMs = Math.round(performance.now() - started);
       return { ...result, provider: 'ChatGPT subscription', durationMs,
         diagnostics: { provider: 'ChatGPT subscription', durationMs, startedAt: new Date(Date.now() - durationMs).toISOString(),
           note: 'Text response via Codex App Server using the shared ChatGPT subscription. Tokens and authentication messages are never recorded. No device tools are exposed to this model.',
-          request: { operation: 'text response', model: result.model, effort: state.effort, system, input: command }, response: { body: { model: result.model, text: result.text }, usage: result.usage } } };
+          request: { operation: 'text response', model: result.model, effort, system, input: command }, response: { body: { model: result.model, text: result.text }, usage: result.usage } } };
     } finally { this.active--; }
   }
 }

@@ -30,7 +30,7 @@ The server reads `TYPESAFE_API_KEY` from the root `.env`. It rereads configurati
 
 **HA → Home chat**, also available as an **Overview → Home chat** tab, provides a ChatGPT-style conversation using HA’s login and theme. It works through the same local or remote HA address, with no laptop server needed. [Add the Overview tab →](deployment/README.md#add-an-overview-tab)
 
-- Shared ChatGPT subscription login and model picker in **chat history → AI settings**; fast model preset by default. No OpenAI/Anthropic API key for this panel; Jev still needs its TypeSafe key.
+- Pick a model beside the message box for each chat; fast preset by default. Admins manage the shared ChatGPT login and home default in **chat history → AI settings**. No OpenAI/Anthropic API key; Jev still needs its TypeSafe key.
 - Automatic HA identity; manual room/bathroom selection in each chat.
 - Saved, account-specific threads in a collapsed sidebar with search, previews, date groups, and an Archived view.
 - Collapsed tool activity, action-selection forms, and follow-up messages.

@@ -45,15 +45,16 @@ Open **Overview → Home chat** (`/lovelace/home-chat`). The tab shares the side
 
 Open **Home chat → chat history → gear (AI settings) → Connect ChatGPT** as an HA administrator. Open the sign-in link and enter the code; the panel updates when sign-in completes. If needed, enable device-code sign-in in ChatGPT’s security settings. This works from local and remote HA because it does not use a localhost browser callback.
 
-- **One login for the home.** Every HA account uses this server-side subscription connection. Chats and HA device permissions remain per user. Only HA admins can connect, disconnect, or change the shared model.
-- **Fast by default.** `Auto` prefers an available fast model (Spark, then Luna, then a mini/nano model) with its lightest supported reasoning. The picker uses Codex’s live model catalog. This is a speed-oriented preset, not a latency guarantee. Choose a specific model to pin it; an unavailable selection shows an error.
+- **One login for the home.** Every HA account uses this server-side subscription connection. Chats and HA device permissions remain per user. Only HA admins can connect, disconnect, or change the home default model.
+- **Choose in the composer.** Open the model name beside the message box. Everyone can choose an available model for their own chat; it applies to the next message and is saved when sent. Existing chats and new chats follow the home default until a model is chosen. The shared login remains server-side.
+- **Fast by default.** `Auto` prefers an available fast model (Spark, then Luna, then a mini/nano model) with its lightest supported reasoning. The picker uses Codex’s live model catalog. This is a speed-oriented preset, not a latency guarantee. Choose a specific model to pin it for the chat; an unavailable selection shows an error.
 - **No OpenAI or Anthropic API key.** Replies, follow-ups, and compound-command splitting use your ChatGPT subscription allowance through [Codex App Server](https://learn.chatgpt.com/docs/app-server). If login expires or limits are reached, reconnect or wait; there is no automatic paid API fallback. The separate TypeSafe/Jev key is still required for device matching.
 
 | Setting | Stored on the HA host |
 | --- | --- |
 | TypeSafe key and bridge secret | `typesafe-chat/runtime.env` (mode `600`) |
 | ChatGPT login and refresh tokens | `typesafe-chat/data/chatgpt/auth.json`, inside a private directory |
-| Shared model selection | `typesafe-chat/data/llm-settings.json` (mode `600`) |
+| Home default model selection | `typesafe-chat/data/llm-settings.json` (mode `600`) |
 | HA’s copy of the bridge secret | `config/secrets.yaml` |
 
 Codex manages token refresh. Credentials survive container restarts and never go to HA users’ browsers, voice devices, or chat/tool history. Do not commit or publish `data/` or `runtime.env`; backups contain credentials too. The helper runs over private stdio with an isolated configuration, ephemeral requests, disabled execution environments/shell/apps, and restricted file access. Only text reaches the application; HA actions still pass through Jev and the existing review.

@@ -39,8 +39,48 @@ test('v1 requires explicit conversations, authenticated context, and well-formed
     [req('new', { threadId: 'existing' }), 'invalid_request'],
     [req('send', { threadId: 'x', text: 3 }), 'invalid_request'],
     [req('send', { threadId: 'x', text: 'hi', componentAction: {} }), 'invalid_request'],
+    [req('send', { threadId: 'x', text: 'hi', model: { id: 'x' } }), 'invalid_request'],
+    [req('new', { model: '' }), 'invalid_request'],
+    [req('open', { threadId: 'x', model: 'auto' }), 'invalid_request'],
     [req('apply', { threadId: 'x', messageId: 'p', selected: [-1] }), 'invalid_request'],
   ]) assert.throws(() => validateChatRequest(input), error => error.code === code);
+});
+
+test('model choices persist per conversation, survive reopen, and stay within the authenticated account', async t => {
+  const { api, service, store, home, client } = await setup(t);
+  const allowed = new Set(['default', 'auto', 'fast-model', 'reasoning-model']);
+  service.llm = { async validateModel(model) { if (!allowed.has(model)) throw new Error('Unavailable model'); } };
+  const routed = [];
+  service.resolve = async (command, history, signal, model) => { routed.push(['context', model]); return { command }; };
+  const preview = home.preview.bind(home);
+  home.preview = (input, signal) => { routed.push(['preview', input.model]); return preview(input, signal); };
+  const first = await api.handle(req('new', { model: 'fast-model', location: 'office' }));
+  const second = await api.handle(req('new', { model: 'reasoning-model', location: 'kitchen' }));
+  const result = await api.handle(req('send', { threadId: first.thread.id, text: 'Which lights are on?', model: 'reasoning-model' }));
+  assert.equal(result.thread.model, 'reasoning-model'); assert.equal(result.conversation.model, 'reasoning-model');
+  assert.deepEqual(routed, [['context', 'reasoning-model'], ['preview', 'reasoning-model']]);
+  assert.equal((await new ChatApi(service).handle(req('open', { threadId: first.thread.id }))).thread.model, 'reasoning-model');
+  assert.equal((await api.handle(req('open', { threadId: second.thread.id }))).thread.model, 'reasoning-model');
+  await api.handle(req('send', { threadId: first.thread.id, text: 'Which lights are on?', model: 'auto' }));
+  assert.equal((await api.handle(req('open', { threadId: second.thread.id }))).thread.model, 'reasoning-model');
+  const before = await store.load(service.actor.id);
+  await assert.rejects(api.handle(req('send', { threadId: first.thread.id, text: 'Invalid selection', model: 'made-up' })), /Unavailable model/);
+  const after = await store.load(service.actor.id);
+  assert.deepEqual(after.threads, before.threads);
+  const other = new ChatApi(new ChatService({ home, store, actor: { id: 'other-user', name: 'Guest' }, llm: service.llm }));
+  await assert.rejects(other.handle(req('send', { threadId: first.thread.id, text: 'Hello', model: 'auto' })), error => error.code === 'thread_not_found');
+  assert.equal((await other.handle(req('new'))).thread.model, 'default');
+  assert.equal(client.writes.length, 0);
+});
+
+test('selecting a model does not prevent pending approvals when ChatGPT is offline', async t => {
+  const { api, service, client } = await setup(t);
+  const chat = await api.handle(req('new', { location: 'kitchen' }));
+  const plan = await api.handle(req('send', { threadId: chat.thread.id, text: 'Turn on the lights' }));
+  service.llm = { validateModel() { throw new Error('ChatGPT offline'); } };
+  const result = await api.handle(req('send', { threadId: chat.thread.id, text: 'yes', model: 'fast-model', confirmationId: plan.reply.elicitation.id }));
+  assert.deepEqual(client.writes, ['light.kitchen']);
+  assert.equal(result.thread.model, 'default');
 });
 
 test('two voice devices retain separate locations and cannot confirm each other’s actions', async t => {

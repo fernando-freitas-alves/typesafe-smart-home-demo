@@ -33,7 +33,7 @@ export function createChatBridge({ secret, directory = './.local/chats', haUrl =
       if (!session) {
         if (sessions.size >= 100) { const idle = [...sessions].find(([, item]) => !item.busy); if (idle) sessions.delete(idle[0]); else return send(res, 429, { error: 'Chat is busy. Try again shortly.' }); }
         if (makeSession) session = makeSession(actor, store);
-        else { const client = new BridgeHomeClient({ haUrl }); const home = new LiveHome({ client, actor }); session = { client, service: new ChatService({ home, actor, store }) }; }
+        else { const client = new BridgeHomeClient({ haUrl }); const home = new LiveHome({ client, actor }); session = { client, service: new ChatService({ home, actor, store, llm }) }; }
         sessions.set(actor.id, session);
       }
       if (session.busy) { session = null; return send(res, 409, { error: 'Another request is running for your account. Wait for its result.', code: 'busy' }); }
