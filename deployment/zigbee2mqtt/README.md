@@ -22,13 +22,15 @@ For a staged converter, set `AYVOLT_CONVERTER` to its path **inside** the contai
 | Function | MQTT payload | Tuya datapoint |
 | --- | --- | --- |
 | Open / close / stop | `{"state":"OPEN"}`, `{"state":"CLOSE"}`, `{"state":"STOP"}` | DP1 enum: 0 / 2 / 1 |
-| Target percentage | `{"position":35}` | DP9, integer 0–100 |
+| Target percentage | `{"position":35}` | DP9 = 65 (35% open), integer 0–100 |
 | Actual position | Device report → `position`, `state` | **DP8** |
 | Reported target | Device report → `target_position` | DP9; never overwrites actual position |
 | Movement direction | Device report → `motor_state` | DP3: 0 opening / 1 closing |
 | Motor rotation setting | `{"motor_direction":"normal"}` or `"reversed"` | DP11 |
 
-Publish commands to `zigbee2mqtt/<friendly_name>/set`. Normal HA convention is **0% closed, 100% open**. The `invert_cover` option adjusts command and reported coordinates together; it does not change the motor's physical rotation setting.
+Publish commands to `zigbee2mqtt/<friendly_name>/set`, one control per request. Normal HA convention is **0% closed, 100% open**. This `_TZE284` motor reports the reverse: raw **0 = open, 100 = closed**. The converter translates measured and target positions; it preserves the physically verified OPEN enum 0. The `invert_cover` option reverses both commands and percentages if needed for a particular installation; it does not change the motor's physical rotation setting.
+
+Every outbound command gets a fresh Tuya transaction number through the library's per-device sequence allocator. The generic datapoint writer in the tested library version hardcodes `seq=1`; this converter bypasses that writer so an immediate Stop is distinguishable from the preceding Open/Close. Transport errors propagate without automatic movement retries.
 
 The motor-state field is the **last reported movement direction**, not proof the motor is still moving. Unsupported values do not invent a stopped state. Position sentinels/out-of-range values are ignored. No battery percentage, calibration controls, limit programming, or other undocumented capabilities are fabricated.
 
@@ -39,6 +41,8 @@ These motors do not have verified on-demand position reads, so no misleading `/g
 ## Evidence and troubleshooting
 
 - Live logs from this manufacturer variant contain actual DP8 reports (including 0, 64, and 100) and separate DP9 target acknowledgements.
+- Shade 1 physically opened with DP1 enum 0, reported target DP9=0, and reached DP8=0. This establishes the position polarity for this installation.
+- **Physical validation remains incomplete:** the initial Open worked, but Stop with the generic constant-sequence writer did not stop it. Fresh-sequence Stop, percentage targets, and the other four motors still require observed testing. Do not equate the offline tests with a verified Stop.
 - The automated checks validate command bytes against the installed converter library, decode those report values, check inversion and invalid data, and verify that sending a command does not optimistically change actual state. They do not substitute for physical testing.
 - If the motor moves but HA stays unknown, inspect DP8 packets, the converted MQTT payload, and HA's MQTT cover position subscription in that order.
 - If direction is wrong, stop the motor and check `invert_cover` against physical observation. Do not experiment with calibration or limit settings.
