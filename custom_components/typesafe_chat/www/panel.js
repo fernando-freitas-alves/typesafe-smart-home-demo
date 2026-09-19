@@ -2,6 +2,7 @@ import { openAiSettings } from './chat-settings.js?v=2';
 import { renderModelPicker, bindModelPicker } from './chat-model-picker.js?v=1';
 import { createChatRequest } from './chat-client.js?v=1';
 import { chatViewportFrame, chatViewportAnchor, containChatScroll } from './chat-viewport.js?v=2';
+import { lockChatPageScroll } from './chat-page-scroll.js?v=1';
 import { renderHistoryList } from './chat-history.js?v=1';
 import { renderDeviceCollections, renderReviewAction, bindDeviceControls } from './chat-components.js?v=1';
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -11,7 +12,7 @@ const statuses = { applied: 'Sent to Home Assistant', revised: 'Replaced by your
 export class HomeChatPanel extends HTMLElement {
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
-    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=14', import.meta.url); stylesheet.onload = () => { this.onResize(); this.scrollBottom(); };
+    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=15', import.meta.url); stylesheet.onload = () => { this.onResize(); this.scrollBottom(); };
     this.view = document.createElement('div'); this.view.style.display = 'contents'; this.shadowRoot.append(stylesheet, this.view);
     this.sidebar = false; this.historyMode = 'chats'; this.historyQuery = ''; this.historyNotice = null; this.busy = false; this.data = null; this.draft = ''; this.error = ''; this.started = false; this.selections = new Map(); this.toolDetails = new Map(); this.componentValues = new Map();
     this.modelChoices = new Map(); this.modelState = null; this.modelError = ''; this.modelsLoading = false;
@@ -42,10 +43,11 @@ export class HomeChatPanel extends HTMLElement {
   }
   set narrow(value) { this._narrow = value; this.toggleAttribute('narrow', Boolean(value)); }
   connectedCallback() {
+    this.releasePageScroll = lockChatPageScroll(this.ownerDocument);
     this.render(); this.onResize(); window.visualViewport?.addEventListener('resize', this.onResize); window.addEventListener('resize', this.onResize);
     window.visualViewport?.addEventListener('scroll', this.onResize);
     window.visualViewport?.addEventListener('scrollend', this.onResize);
-    window.addEventListener('scroll', this.onResize, true);
+    window.addEventListener('scroll', this.onResize);
     this.shadowRoot.addEventListener('focusin', this.onResize);
     this.shadowRoot.addEventListener('focusout', this.onResize);
     this.releaseScrollContainment = containChatScroll(this.shadowRoot);
@@ -59,9 +61,10 @@ export class HomeChatPanel extends HTMLElement {
     window.visualViewport?.removeEventListener('resize', this.onResize);
     window.visualViewport?.removeEventListener('scroll', this.onResize);
     window.visualViewport?.removeEventListener('scrollend', this.onResize);
-    window.removeEventListener('resize', this.onResize); window.removeEventListener('scroll', this.onResize, true);
+    window.removeEventListener('resize', this.onResize); window.removeEventListener('scroll', this.onResize);
     this.shadowRoot.removeEventListener('focusin', this.onResize); this.shadowRoot.removeEventListener('focusout', this.onResize);
     this.releaseScrollContainment?.();
+    this.releasePageScroll?.();
     document.removeEventListener('pointerdown', this.onModelOutside);
   }
   updateAccountBadge() {
@@ -241,7 +244,7 @@ export class HomeChatPanel extends HTMLElement {
         ${this.historyNotice ? `<div class="history-notice" role="status">${icon('check-circle-outline')}<span>${this.historyNotice.text}</span>${this.historyNotice.undoId ? `<button class="text-button" data-history-undo ${this.busy ? 'disabled' : ''}>Undo</button>` : ''}</div>` : ''}
         <div class="account"><span class="account-avatar" aria-hidden="true"><ha-user-badge></ha-user-badge>${icon('account-circle-outline')}</span><div><strong>${escape(name)}</strong><small>Home Assistant account</small></div><button class="icon-button" title="AI settings" aria-label="AI settings" data-ai-settings>${icon('cog-outline')}</button></div>
       </aside>
-      <main ${this.sidebar && matchMedia('(max-width: 700px)').matches ? 'inert' : ''}><header><div class="header-left"><ha-menu-button class="ha-menu" title="Home Assistant menu"></ha-menu-button><button class="icon-button" aria-label="${this.sidebar ? 'Close' : 'Open'} chat history" aria-expanded="${this.sidebar}" title="Chat history" data-sidebar>${icon('dock-left')}</button><button class="icon-button" title="New chat" aria-label="New chat" data-new ${this.busy ? 'disabled' : ''}>${icon('square-edit-outline')}</button><span class="brand">Home chat<span class="brand-dot" aria-hidden="true"></span></span></div><div class="header-right"><span class="user-name">${escape(name)}</span>${hasMessages ? `<details class="chat-menu"><summary class="icon-button" aria-label="Chat options" title="Chat options">${icon('dots-horizontal')}</summary><div>${archived ? `<button data-restore="${escape(this.data.thread.id)}" ${this.busy ? 'disabled' : ''}>Restore chat</button>` : `<button data-rename ${this.busy ? 'disabled' : ''}>Rename chat</button><button data-archive ${this.busy ? 'disabled' : ''}>Archive chat</button>`}</div></details>` : ''}</div></header>
+      <main ${this.sidebar && matchMedia('(max-width: 700px)').matches ? 'inert' : ''}><header><div class="header-left"><ha-menu-button class="ha-menu" title="Home Assistant menu"></ha-menu-button><button class="icon-button" aria-label="${this.sidebar ? 'Close' : 'Open'} chat history" aria-expanded="${this.sidebar}" title="Chat history" data-sidebar>${icon('dock-left')}</button><button class="icon-button" title="New chat" aria-label="New chat" data-new ${this.busy ? 'disabled' : ''}>${icon('square-edit-outline')}</button><span class="brand">Home chat</span></div><div class="header-right"><span class="user-name">${escape(name)}</span>${hasMessages ? `<details class="chat-menu"><summary class="icon-button" aria-label="Chat options" title="Chat options">${icon('dots-horizontal')}</summary><div>${archived ? `<button data-restore="${escape(this.data.thread.id)}" ${this.busy ? 'disabled' : ''}>Restore chat</button>` : `<button data-rename ${this.busy ? 'disabled' : ''}>Rename chat</button><button data-archive ${this.busy ? 'disabled' : ''}>Archive chat</button>`}</div></details>` : ''}</div></header>
       <div class="scroll-area"><div class="conversation ${!hasMessages ? 'empty' : ''}">${hasMessages ? messages.map(item => this.renderMessage(item)).join('') || (archived ? '<p class="archived-empty">This archived chat is empty.</p>' : '') : `<section class="welcome"><div class="welcome-icon">${icon('home-outline')}</div><h1>What can I help with${name !== 'Home Assistant' ? `, ${escape(name.split(' ')[0])}` : ''}?</h1><p>Your home, one conversation.</p><div class="suggestions"><button data-prompt="Turn on the lights">${icon('lightbulb-outline')}Turn on the lights</button><button data-prompt="Which lights are on here?">${icon('home-search-outline')}What’s on here?</button><button data-prompt="What’s the temperature here?">${icon('thermometer')}Check the temperature</button></div></section>`}${this.pendingText ? this.renderMessage({ role: 'user', text: this.pendingText }) : ''}${this.busy ? `<div class="working" role="status"><span class="working-dot"></span>${this.operation === 'apply' ? 'Applying your selected changes…' : this.operation === 'bootstrap' ? 'Connecting to your home…' : this.operation === 'send' ? 'Working on your request…' : 'Updating your chat…'}</div>` : ''}</div></div>
       <div class="composer-area"><div class="composer-inner">${this.error ? `<div class="error" role="alert">${icon('alert-circle-outline')}<span>${escape(this.error)}</span><button class="text-button" data-recover>Reopen chat</button></div>` : ''}${archived ? `<div class="archived-chat">${icon('archive-outline')}<div><strong>Archived chat</strong><p>Restore this conversation to send messages or use device controls.</p></div><button class="primary" data-restore="${escape(this.data.thread.id)}" ${this.busy ? 'disabled' : ''}>Restore chat</button></div>` : `<div class="presence-row">${this.locationSelect()}<span>Selected manually</span></div><form class="composer"><label class="sr-only" for="message">Message Home chat</label><textarea id="message" name="message" autocomplete="off" rows="1" maxlength="1500" placeholder="Ask about your home…" ${!this.data ? 'disabled' : ''}>${escape(this.draft)}</textarea><div class="composer-bottom"><div class="composer-model" data-model-picker></div><span class="connection-status" title="${this.data ? 'Connected to Home Assistant' : 'Connecting to Home Assistant'}">${icon('home-assistant')}<span class="sr-only">${this.data ? 'Connected to Home Assistant' : 'Connecting to Home Assistant'}</span></span><button class="send" type="submit" aria-label="Send message" title="Send message" ${this.busy || !this.draft.trim() || !this.data ? 'disabled' : ''}>${icon('arrow-up')}</button></div></form><p class="composer-note">You review changes before they happen. Location is specific to this chat.</p>`}</div></div>
       <div class="sr-only" role="status" aria-live="polite">${this.error ? 'Chat needs attention.' : !this.busy && hasMessages ? 'Response ready.' : ''}</div>
