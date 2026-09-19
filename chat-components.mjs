@@ -43,7 +43,7 @@ export function deviceComponent(device, { controls = true, observed } = {}) {
   if (device.available && device.kind === 'fan' && finite(a.percentage)) metrics.push({ label: 'Speed', value: a.percentage, unit: '%' });
   if (device.available && device.kind === 'speaker' && finite(a.volume_level)) metrics.push({ label: 'Volume', value: Math.round(a.volume_level * 100), unit: '%' });
   return { type: device.kind, entityId: device.entity_id, name: device.name, room: device.roomName, value, unit, stateLabel: liveLabel(device), active: liveActive(device), available: device.available,
-    deviceClass: a.device_class, metrics, ...(finite(progress) ? { progress: Math.max(0, Math.min(100, progress)) } : {}),
+    icon: device.icon || null, deviceClass: a.device_class, metrics, ...(finite(progress) ? { progress: Math.max(0, Math.min(100, progress)) } : {}),
     note: !device.available ? 'Unavailable when this snapshot was taken.' : device.readOnly ? device.readOnlyReason : '',
     ...(observed !== undefined ? { observed } : {}), controls: fields };
 }

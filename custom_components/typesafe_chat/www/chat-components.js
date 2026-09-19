@@ -1,11 +1,16 @@
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const icon = name => `<ha-icon icon="mdi:${name}" aria-hidden="true"></ha-icon>`;
+const icon = name => `<ha-icon icon="${escape(name.includes(':') ? name : `mdi:${name}`)}" aria-hidden="true"></ha-icon>`;
+const validIcon = value => typeof value === 'string' && /^[a-z0-9_-]+:[a-z0-9_-]+$/i.test(value);
 const catalog = new Set(['light', 'thermostat', 'cover', 'sensor', 'fan', 'speaker', 'appliance', 'lock']);
 const number = value => typeof value === 'number' ? new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value) : escape(value);
 const reading = (value, unit = '') => `${number(value)}${unit ? `<span class="device-unit">${escape(unit)}</span>` : ''}`;
 export const controlKey = (messageId, entityId, action) => `${messageId}/${entityId}/${action}`;
 
-export function deviceIcon(card) {
+export function deviceIcon(card, hass) {
+  // Current HA metadata also supplies icons for older saved cards. Their state
+  // readings remain snapshots; only their visual identity is refreshed.
+  const custom = [hass?.entities?.[card.entityId]?.icon, hass?.states?.[card.entityId]?.attributes?.icon, card.icon].find(validIcon);
+  if (custom) return custom;
   if (card.type === 'sensor') return { temperature: 'thermometer', humidity: 'water-percent', battery: 'battery-outline', illuminance: 'brightness-6', power: 'flash-outline', energy: 'lightning-bolt-outline', occupancy: 'motion-sensor', motion: 'motion-sensor', door: 'door', window: 'window-closed', moisture: 'water-outline', smoke: 'smoke-detector-outline' }[card.deviceClass] || 'gauge';
   return { light: card.active ? 'lightbulb-on-outline' : 'lightbulb-outline', thermostat: 'thermometer', cover: 'blinds-horizontal', fan: 'fan', speaker: 'speaker', appliance: 'power-plug-outline', lock: 'lock-outline' }[card.type] || 'home-outline';
 }
@@ -28,7 +33,7 @@ function renderControl(control, card, messageId, options) {
 function renderCard(card, messageId, options) {
   const controls = Array.isArray(card.controls) ? card.controls : [];
   const buttons = controls.filter(control => control.type === 'button'); const fields = controls.filter(control => control.type !== 'button');
-  return `<article class="device-card device-${card.type} ${card.active ? 'is-active' : ''} ${!card.available ? 'is-unavailable' : ''}" aria-label="${escape(card.name)}"><div class="device-card-heading"><span class="device-symbol">${icon(deviceIcon(card))}</span><div><h3>${escape(card.name)}</h3><p>${escape(card.room)}</p></div></div><div class="device-reading">${reading(card.value, card.unit)}</div>${card.metrics?.length ? `<dl class="device-metrics">${card.metrics.map(metric => `<div><dt>${escape(metric.label)}</dt><dd>${reading(metric.value, metric.unit)}</dd></div>`).join('')}</dl>` : ''}${Number.isFinite(card.progress) ? `<meter class="device-meter" min="0" max="100" value="${card.progress}" aria-label="${card.type === 'cover' ? 'Open position' : 'Brightness'}">${card.progress}%</meter>` : ''}${card.observed !== undefined ? `<p class="device-observed ${card.observed ? '' : 'needs-check'}">${icon(card.observed ? 'check-circle-outline' : 'alert-circle-outline')}${card.observed ? 'Change observed' : 'Change not confirmed'}</p>` : ''}${card.note ? `<p class="device-note">${escape(card.note)}</p>` : ''}${controls.length ? `<div class="device-controls">${buttons.length ? `<div class="device-buttons">${buttons.map(control => renderControl(control, card, messageId, options)).join('')}</div>` : ''}${fields.map(control => renderControl(control, card, messageId, options)).join('')}</div>` : ''}</article>`;
+  return `<article class="device-card device-${card.type} ${card.active ? 'is-active' : ''} ${!card.available ? 'is-unavailable' : ''}" aria-label="${escape(card.name)}"><div class="device-card-heading"><span class="device-symbol">${icon(deviceIcon(card, options.hass))}</span><div><h3>${escape(card.name)}</h3><p>${escape(card.room)}</p></div></div><div class="device-reading">${reading(card.value, card.unit)}</div>${card.metrics?.length ? `<dl class="device-metrics">${card.metrics.map(metric => `<div><dt>${escape(metric.label)}</dt><dd>${reading(metric.value, metric.unit)}</dd></div>`).join('')}</dl>` : ''}${Number.isFinite(card.progress) ? `<meter class="device-meter" min="0" max="100" value="${card.progress}" aria-label="${card.type === 'cover' ? 'Open position' : 'Brightness'}">${card.progress}%</meter>` : ''}${card.observed !== undefined ? `<p class="device-observed ${card.observed ? '' : 'needs-check'}">${icon(card.observed ? 'check-circle-outline' : 'alert-circle-outline')}${card.observed ? 'Change observed' : 'Change not confirmed'}</p>` : ''}${card.note ? `<p class="device-note">${escape(card.note)}</p>` : ''}${controls.length ? `<div class="device-controls">${buttons.length ? `<div class="device-buttons">${buttons.map(control => renderControl(control, card, messageId, options)).join('')}</div>` : ''}${fields.map(control => renderControl(control, card, messageId, options)).join('')}</div>` : ''}</article>`;
 }
 
 export function renderDeviceCollections(components, messageId, options = {}) {
@@ -40,9 +45,9 @@ export function renderDeviceCollections(components, messageId, options = {}) {
   }).join('');
 }
 
-export function renderReviewAction(action, index, checked) {
+export function renderReviewAction(action, index, checked, options = {}) {
   const card = action.component;
-  return `<label class="action ${card ? 'visual-action' : ''}"><input type="checkbox" name="selected" value="${index}" ${checked ? 'checked' : ''}>${card ? `<span class="device-symbol ${card.active ? 'is-active' : ''}">${icon(deviceIcon(card))}</span>` : ''}<span class="action-description"><strong>${escape(action.name)}</strong><small>${escape(action.roomName)}</small><span class="action-transition"><span>${escape(action.before)}</span>${icon('arrow-right')}<span>${escape(action.label.split(' · ')[0])}</span></span></span></label>`;
+  return `<label class="action ${card ? 'visual-action' : ''}"><input type="checkbox" name="selected" value="${index}" ${checked ? 'checked' : ''}>${card ? `<span class="device-symbol ${card.active ? 'is-active' : ''}">${icon(deviceIcon(card, options.hass))}</span>` : ''}<span class="action-description"><strong>${escape(action.name)}</strong><small>${escape(action.roomName)}</small><span class="action-transition"><span>${escape(action.before)}</span>${icon('arrow-right')}<span>${escape(action.label.split(' · ')[0])}</span></span></span></label>`;
 }
 
 export function bindDeviceControls(root, { values, submit }) {

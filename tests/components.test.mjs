@@ -12,6 +12,24 @@ import { LiveHome } from '../live-engine.mjs';
 const light = (extra = {}) => ({ entity_id: 'light.desk', domain: 'light', kind: 'light', name: 'Desk lamp', roomName: 'Office', available: true, readOnly: false, state: 'on', attributes: { brightness: 128, supported_color_modes: ['brightness'] }, ...extra });
 const climate = () => light({ entity_id: 'climate.office', domain: 'climate', kind: 'thermostat', state: 'heat', temperatureUnit: '°C', attributes: { current_temperature: 22.5, temperature: 24, min_temp: 16, max_temp: 30, target_temp_step: 0.5, hvac_modes: ['off', 'heat'], supported_features: 1 } });
 const threadFor = (devices = [light()]) => ({ messages: [{ id: 'query', role: 'assistant', components: deviceCollection(devices, { capturedAt: '2026-09-18T23:45:00Z' }) }] });
+test('cards and review forms use HA custom icon namespaces, including old snapshots, and reject markup', () => {
+  const components = deviceCollection([light({ icon: 'hue:bulb-group-spot-hung' })]);
+  const card = components[0].cards[0];
+  assert.equal(card.icon, 'hue:bulb-group-spot-hung');
+  assert.match(renderDeviceCollections(components, 'query'), /icon="hue:bulb-group-spot-hung"/);
+  const action = { name: card.name, roomName: card.room, before: 'Off', label: 'Turn on', component: card };
+  assert.match(renderReviewAction(action, 0, true), /icon="hue:bulb-group-spot-hung"/);
+  delete card.icon;
+  const hass = { entities: { 'light.desk': { icon: 'mdi:spotlight-beam' } }, states: { 'light.desk': { attributes: { icon: 'mdi:spotlight' } } } };
+  assert.match(renderDeviceCollections(components, 'query', { hass }), /icon="mdi:spotlight-beam"/);
+  assert.match(renderReviewAction(action, 0, true, { hass }), /icon="mdi:spotlight-beam"/);
+  delete hass.entities;
+  assert.match(renderDeviceCollections(components, 'query', { hass }), /icon="mdi:spotlight"/);
+  card.icon = 'mdi:lamp" onload="alert(1)';
+  const rendered = renderDeviceCollections(components, 'query');
+  assert.ok(!rendered.includes('onload')); assert.match(rendered, /icon="mdi:lightbulb-on-outline"/);
+});
+
 
 test('the component catalog renders domain-specific data without exporting raw device metadata', () => {
   const lamp = deviceComponent(light({ attributes: { ...light().attributes, authorization: 'not-public' } }));
