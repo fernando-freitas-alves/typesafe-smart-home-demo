@@ -378,3 +378,65 @@ test('HTTP preview and apply reach the HA REST adapter, then read back state wit
   assert.equal(writes, 1); assert.equal(applied.calls[0].observed, true);
   assert.ok(!JSON.stringify(applied).includes('local-test-token'));
 });
+
+function unassignedFixture() {
+  const raw = fixture();
+  raw.areas.push({ area_id: 'terrace', name: 'Terrace' });
+  for (const [id, name, area, aliases = []] of [
+    ['shade_1', 'terrace_window_shades_1', null], ['shade_2', 'Shade two', undefined, ['Terrace shade 2']],
+    ['plain', 'Portable shade', null], ['conflict', 'Terrace Study shade', null],
+    ['assigned', 'Terrace shade elsewhere', 'study'], ['bath', 'Terrace bathroom shade', null],
+    ['stale', 'Portable second shade', 'removed-area'],
+  ]) {
+    raw.states.push({ entity_id: `cover.${id}`, state: 'open', attributes: { friendly_name: name, supported_features: 15 } });
+    raw.entities.push({ entity_id: `cover.${id}`, area_id: area, aliases });
+  }
+  return raw;
+}
+
+test('unassigned devices retain their HA assignment and get only unambiguous name/alias room hints', () => {
+  const inventory = buildLiveInventory(unassignedFixture());
+  const device = id => inventory.devices.find(d => d.entity_id === `cover.${id}`);
+  for (const id of ['shade_1', 'shade_2']) {
+    assert.equal(device(id).room, 'unassigned'); assert.equal(device(id).areaId, 'unassigned');
+    assert.equal(device(id).roomHint.id, 'terrace'); assert.equal(device(id).roomHint.source, 'name_or_alias');
+  }
+  assert.equal(device('bath').roomHint.id, 'terrace__space_bathroom');
+  assert.equal(device('assigned').room, 'study'); assert.equal(device('assigned').roomHint, undefined);
+  for (const id of ['plain', 'conflict', 'stale']) { assert.equal(device(id).room, 'unassigned'); assert.equal(device(id).roomHint, undefined); }
+  assert.ok(inventory.rooms.some(room => room.id === 'terrace'));
+  assert.ok(inventory.rooms.some(room => room.id === 'unassigned'));
+  assert.ok(buildLiveQuestions(inventory.devices).room.criteria.terrace);
+});
+
+test('named-room groups include matching unassigned devices without including other rooms, bathrooms, or unknown groups', async () => {
+  const client = fakeClient(unassignedFixture());
+  client.raw.states.push({ entity_id: 'cover.terrace_group', state: 'open', attributes: { friendly_name: 'Terrace shades group', supported_features: 15, entity_id: ['cover.shade_1', 'cover.plain'] } });
+  const home = new LiveHome({ client, settings: () => ({}), dependencies: {
+    async evaluate(command, devices) { return stage(devices, { scope: 'area', room: 'terrace', device_type: 'cover', cover_action: 'close_cover' }, command); },
+  } });
+  for (const location of ['', 'unassigned', 'study', 'terrace']) {
+    const result = await home.preview({ command: 'Turn down terrace shades', location });
+    assert.deepEqual(result.actions.map(action => action.data.entity_id).sort(), ['cover.shade_1', 'cover.shade_2']);
+  }
+  assert.equal(client.writes.length, 0);
+});
+
+test('unassigned is a usable selected location and unique devices need no selected room', () => {
+  const devices = buildLiveInventory(unassignedFixture()).devices;
+  const selected = planLiveDecision(stage(devices, { scope: 'current_location', device_type: 'cover', cover_action: 'close_cover' }), devices, { location: { id: 'unassigned' } });
+  assert.ok(selected.targets.some(d => d.entity_id === 'cover.plain'));
+  assert.ok(selected.targets.every(d => d.room === 'unassigned'));
+  const named = planLiveDecision(stage(devices, { scope: 'specific_device', device_type: 'cover', device: 'cover__plain', cover_action: 'close_cover' }), devices);
+  assert.deepEqual(named.targets.map(d => d.entity_id), ['cover.plain']);
+});
+
+test('unavailable unassigned devices are matched and reported, not mistaken for a missing location', () => {
+  const raw = unassignedFixture();
+  for (const id of ['cover.shade_1', 'cover.shade_2']) raw.states.find(state => state.entity_id === id).state = 'unknown';
+  const devices = buildLiveInventory(raw).devices;
+  const request = stage(devices, { scope: 'area', room: 'terrace', device_type: 'cover', cover_action: 'close_cover' });
+  assert.throws(() => planLiveDecision(request, devices), error => error.code === 'devices_unavailable' && /terrace_window_shades_1 \(unknown\)/.test(error.message));
+  const query = stage(devices, { intent: 'smarthome_query', scope: 'area', room: 'terrace', device_type: 'cover' });
+  assert.equal(planLiveDecision(query, devices).targets.length, 2);
+});

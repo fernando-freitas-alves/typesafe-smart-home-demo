@@ -141,3 +141,40 @@ test('bridge requires its secret and forwards only the authenticated actor into 
   assert.ok(!JSON.stringify(data).includes('HA-user-secret'));
   const saved = await readFile(new ChatStore(directory).path('actual-user'), 'utf8'); assert.ok(!saved.includes('HA-user-secret'));
 });
+
+test('no match is not a location question and changing location cannot repeat it', async t => {
+  const { service, home, store, actor, client } = await setup(t);
+  let calls = 0;
+  home.preview = async () => { calls++; throw new Error('No matching device in the selected rooms. Name a device shown on this page.'); };
+  let result = await service.handle({ op: 'send', text: 'Turn down terrace shades' });
+  assert.equal(result.thread.messages.at(-1).form, undefined);
+  assert.match(result.thread.messages.at(-1).text, /No matching device/);
+  assert.equal((await store.load(actor.id)).threads[0].waitingCommand, null);
+  result = await service.handle({ op: 'location', location });
+  assert.equal(calls, 1); assert.equal(result.thread.messages.at(-1).role, 'context');
+  assert.equal(client.writes.length, 0);
+});
+
+test('a saved looping request resumes once, exposes the actual failure, and clears the retry', async t => {
+  const { service, home, store, actor } = await setup(t);
+  await service.handle({ op: 'send', text: 'Turn on the lights' });
+  let calls = 0;
+  home.preview = async () => { calls++; throw Object.assign(new Error('All matching devices are unknown.'), { code: 'devices_unavailable' }); };
+  let result = await service.handle({ op: 'location', location });
+  assert.match(result.thread.messages.at(-1).text, /unknown/);
+  assert.equal(result.thread.messages.at(-1).form, undefined);
+  assert.ok(result.thread.messages.filter(item => item.form?.kind === 'location').every(item => item.form.status === 'resolved'));
+  assert.equal((await store.load(actor.id)).threads[0].waitingCommand, null);
+  await service.handle({ op: 'location', location: 'office' });
+  assert.equal(calls, 1);
+});
+
+test('a new request retires an old location question even when the new request fails', async t => {
+  const { service, home } = await setup(t);
+  const waiting = await service.handle({ op: 'send', text: 'Turn on the lights' });
+  const questionId = waiting.thread.messages.at(-1).id;
+  home.preview = async () => { throw new Error('No matching device for that request.'); };
+  const result = await service.handle({ op: 'send', text: 'Turn down terrace shades' });
+  assert.equal(result.thread.messages.find(message => message.id === questionId).form.status, 'resolved');
+  assert.equal(result.thread.messages.at(-1).form, undefined);
+});

@@ -18,6 +18,21 @@ function physicalRoom(areaId, areaName, name, aliases) {
   return subspace ? { id: `${areaId}__space_${subspace.key}`, name: `${areaName} · ${subspace.name}`, space: subspace.key } : { id: areaId, name: areaName, space: 'main' };
 }
 
+// Missing HA assignments do not erase explicit location words in names/aliases.
+// Keep this hint separate from the actual registry assignment. Never infer from
+// icons, device labels, or a partial word (e.g. "bed" in "bedroom").
+const roomWords = value => plainName(value).toLowerCase().replace(/['’]s\b/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+function namedRoomHint(areas, name, aliases) {
+  const names = [name, ...aliases].map(value => ` ${roomWords(value)} `);
+  const matches = areas.filter(area => {
+    const words = roomWords(area.name);
+    return words && names.some(value => value.includes(` ${words} `));
+  });
+  if (matches.length !== 1) return null;
+  const area = matches[0];
+  return { ...physicalRoom(area.area_id, area.name, name, aliases), area: { id: area.area_id, name: area.name }, source: 'name_or_alias' };
+}
+
 export function buildLiveInventory(raw, { haSwitchEntities = [] } = {}) {
   const registry = new Map(raw.entities.map(e => [e.entity_id, e]));
   const hardware = new Map(raw.devices.map(d => [d.id, d]));
@@ -33,19 +48,21 @@ export function buildLiveInventory(raw, { haSwitchEntities = [] } = {}) {
     const name = entry?.name || state.attributes.friendly_name || state.entity_id;
     if (maintenance.test(name + ' ' + state.entity_id)) continue;
     if (kind === 'sensor' && !sensorClasses.has(state.attributes.device_class)) continue;
-    const areaId = entry?.area_id || device?.area_id || 'unassigned';
+    const assignedArea = entry?.area_id || device?.area_id;
+    const areaId = areaNames.has(assignedArea) ? assignedArea : 'unassigned';
     const areaName = areaNames.get(areaId) || 'Unassigned';
     const aliases = (entry?.aliases || []).filter(alias => typeof alias === 'string' && alias.trim());
     const icon = entry?.icon || state.attributes.icon || entry?.original_icon || null;
     const labels = [['entity', entry?.labels], ['device', device?.labels]].flatMap(([source, ids]) =>
       (ids || []).map(id => ({ id, name: labelNames.get(id) || id, source })));
     const space = areaId === 'unassigned' ? { id: areaId, name: areaName, space: 'main' } : physicalRoom(areaId, areaName, name, aliases);
+    const roomHint = areaId === 'unassigned' ? namedRoomHint(raw.areas, name, aliases) : null;
     const attrs = Object.fromEntries(attributes.filter(key => state.attributes[key] !== undefined).map(key => [key, state.attributes[key]]));
     const denied = raw.controlEntities && !raw.controlEntities.includes(state.entity_id);
     const readOnly = denied || kind === 'sensor' || kind === 'lock' || (domain === 'switch' && !haSwitchEntities.includes(state.entity_id));
     const available = !['unknown', 'unavailable'].includes(state.state);
     devices.push({ entity_id: state.entity_id, id: state.entity_id.replace('.', '__'), domain, kind, name, room: space.id,
-      roomName: space.name, areaId, areaName, space: space.space, aliases, icon, labels, state: state.state, attributes: attrs,
+      roomName: space.name, areaId, areaName, space: space.space, ...(roomHint ? { roomHint } : {}), aliases, icon, labels, state: state.state, attributes: attrs,
       temperatureUnit: raw.temperatureUnit, available, readOnly,
       readOnlyReason: denied ? 'Your Home Assistant account cannot control this device.' : kind === 'sensor' ? 'Sensor · read only' : kind === 'lock' ? 'Locks are read only on this page.' : readOnly ? 'Switch control is not enabled in the local configuration.' : '',
       override: overrides.get(state.entity_id) || null });
@@ -55,7 +72,15 @@ export function buildLiveInventory(raw, { haSwitchEntities = [] } = {}) {
     device.groupRooms = [...new Set(device.attributes.entity_id.map(id => byId.get(id)?.room || 'unknown'))];
   }
   devices.sort((a, b) => a.roomName.localeCompare(b.roomName) || a.name.localeCompare(b.name));
-  return { devices, rooms: [...new Map(devices.map(d => [d.room, { id: d.room, name: d.roomName, area: { id: d.areaId, name: d.areaName }, space: d.space }])).values()],
+  const rooms = new Map();
+  for (const device of devices) {
+    rooms.set(device.room, { id: device.room, name: device.roomName, area: { id: device.areaId, name: device.areaName }, space: device.space });
+    if (device.roomHint) {
+      const { id, name, area, space } = device.roomHint;
+      rooms.set(id, { id, name, area, space });
+    }
+  }
+  return { devices, rooms: [...rooms.values()],
     updatedAt: new Date().toISOString(), counts: { total: devices.length, controllable: devices.filter(d => !d.readOnly).length, unavailable: devices.filter(d => !d.available).length } };
 }
 

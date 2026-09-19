@@ -31,7 +31,10 @@ function summarizeTools(result) {
 export class ChatService {
   constructor({ home, store, actor, resolve = contextualizeChat, llm = sharedLlm() }) { this.home = home; this.store = store; this.actor = actor; this.resolve = resolve; this.llm = llm; }
   invalidate(thread, status = 'revised') {
-    for (const item of thread.messages) if (item.form?.status === 'pending') { this.home.pending.delete(item.form.planId); item.form.status = status; }
+    for (const item of thread.messages) {
+      if (item.form?.kind === 'location') item.form.status = 'resolved';
+      else if (item.form?.status === 'pending') { this.home.pending.delete(item.form.planId); item.form.status = status; }
+    }
   }
   pending(thread) { return [...thread.messages].reverse().find(item => item.form?.status === 'pending'); }
   async handle(input, signal) {
@@ -94,7 +97,7 @@ export class ChatService {
         try {
           const context = {
             user: liveUserContext(snapshot.rooms, { actor: this.actor, location: thread.location, anonymous: thread.source?.kind === 'voice' }),
-            devices: snapshot.devices.map(({ entity_id, name, kind, room, roomName, aliases, icon, labels }) => ({ entity_id, name, kind, room, roomName, aliases, icon, labels })),
+            devices: snapshot.devices.map(({ entity_id, name, kind, room, roomName, roomHint, aliases, icon, labels }) => ({ entity_id, name, kind, room, roomName, roomHint, aliases, icon, labels })),
           };
           const resolved = await this.resolve(text, history, signal, thread.model || 'default', context);
           if (resolved.clarification) thread.messages.push(message('assistant', resolved.clarification, { expectsReply: true, tools: resolved.diagnostics ? [contextTool(resolved, text)] : [] }));
@@ -114,7 +117,6 @@ export class ChatService {
       const location = snapshot.rooms.find(room => room.id === input.location);
       if (input.location !== '' && !location) throw new Error('Choose a location from this home.');
       this.invalidate(thread); thread.location = input.location;
-      if (location) for (const item of thread.messages) if (item.form?.kind === 'location') item.form.status = 'resolved';
       thread.messages.push(message('context', location ? `Location: ${location.name}` : 'Location cleared.'));
       const waiting = thread.waitingCommand; thread.waitingCommand = null;
       if (waiting && location) await this.preview(thread, waiting, signal);
@@ -186,8 +188,8 @@ export class ChatService {
         thread.messages.push(message('assistant', 'Which person’s office do you mean? Please name the room.', { expectsReply: true }));
         return;
       }
-      const needsLocation = /Where I am|selected location|location is no longer|select.*room/i.test(error.message);
-      if (needsLocation) thread.waitingCommand = command;
+      const needsLocation = ['location_required', 'location_unavailable'].includes(error.code);
+      thread.waitingCommand = needsLocation ? command : null;
       thread.messages.push(message('assistant', needsLocation ? 'Which space are you in? Choose a location below, or name the room in your next message.' : error.message,
         { ...(needsLocation ? { form: { kind: 'location' } } : { error: true }), tools: [...(context.diagnostics ? [contextTool(context, command)] : []), ...(error.stages || []).map(stageTool), ...failedTool(error)] }));
     }

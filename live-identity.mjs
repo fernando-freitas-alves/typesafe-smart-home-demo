@@ -1,3 +1,5 @@
+import { homeRequestError } from './live-errors.mjs';
+
 export const identities = [
   { id: 'fernando', name: 'Fernando' },
   { id: 'flavia', name: 'Flavia' },
@@ -39,7 +41,7 @@ export function validatePersonalReferences(command, user, room = '') {
     if (room && room !== user.office.id && !room.startsWith(`${user.office.id}__space_`)) throw new Error(`“My office” means ${user.office.name}. Select that room or All rooms, then preview again.`);
   }
   if (/\b(?:here|this room|aqui|neste c[oô]modo|nesse c[oô]modo)\b/i.test(command)) {
-    if (!user.location) throw new Error('To use “here” or “this room”, select Where I am. Otherwise, name the room in your request.');
+    if (!user.location) throw homeRequestError('location_required', 'To use “here” or “this room”, select Where I am. Otherwise, name the room in your request.');
     if (room && room !== user.location.id) throw new Error(`“Here” means ${user.location.name}. Select that room or All rooms, then preview again.`);
   }
 }
