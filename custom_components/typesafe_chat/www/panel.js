@@ -1,7 +1,7 @@
 import { openAiSettings } from './chat-settings.js?v=2';
 import { renderModelPicker, bindModelPicker } from './chat-model-picker.js?v=1';
 import { createChatRequest } from './chat-client.js?v=1';
-import { chatViewportFrame, chatViewportAnchor, containChatScroll } from './chat-viewport.js?v=2';
+import { chatViewportFrame, chatViewportAnchor, containChatScroll } from './chat-viewport.js?v=3';
 import { lockChatPageScroll } from './chat-page-scroll.js?v=1';
 import { renderHistoryList } from './chat-history.js?v=1';
 import { renderDeviceCollections, renderReviewAction, bindDeviceControls } from './chat-components.js?v=1';
@@ -12,7 +12,7 @@ const statuses = { applied: 'Sent to Home Assistant', revised: 'Replaced by your
 export class HomeChatPanel extends HTMLElement {
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
-    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=16', import.meta.url); stylesheet.onload = () => { this.onResize(); this.scrollBottom(); };
+    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=17', import.meta.url); stylesheet.onload = () => { this.onResize(); this.scrollBottom(); };
     this.view = document.createElement('div'); this.view.style.display = 'contents'; this.shadowRoot.append(stylesheet, this.view);
     this.sidebar = false; this.historyMode = 'chats'; this.historyQuery = ''; this.historyNotice = null; this.busy = false; this.data = null; this.draft = ''; this.error = ''; this.started = false; this.selections = new Map(); this.toolDetails = new Map(); this.componentValues = new Map();
     this.modelChoices = new Map(); this.modelState = null; this.modelError = ''; this.modelsLoading = false;

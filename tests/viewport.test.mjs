@@ -105,3 +105,89 @@ test('touch containment preserves nested scrolling and pinch zoom, and cleans up
   dispatch('touchstart', 100);
   assert.equal(dispatch('touchmove', 140, [root]), false, 'leaving the chat removes its scroll handlers');
 });
+
+function composerGesture(t, overrides = {}) {
+  browserGlobals(t, { getComputedStyle: node => node.style, window: { visualViewport: { scale: 1 } } });
+  const root = new EventTarget();
+  const input = {
+    nodeType: 1, matches: selector => selector === 'textarea#message',
+    value: 'A draft to preserve', selectionStart: 3, selectionEnd: 3,
+    scrollTop: 0, clientHeight: 100, scrollHeight: 500,
+    style: { overflowY: 'auto', overflowX: 'auto' }, ...overrides,
+  };
+  const dispose = containChatScroll(root);
+  t.after(dispose);
+  const dispatch = (type, y, { x = 20, time = 10, fingers = 1 } = {}) => {
+    const event = new Event(type, { cancelable: true });
+    event.touches = Array.from({ length: fingers }, (_, i) => ({ clientX: x + i * 10, clientY: y }));
+    event.composedPath = () => [input, root];
+    Object.defineProperty(event, 'timeStamp', { value: time });
+    root.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  return { root, input, dispatch, dispose };
+}
+
+test('swipes starting in the composer scroll only its draft, including at both boundaries', t => {
+  const { input, dispatch } = composerGesture(t);
+  assert.equal(dispatch('touchstart', 200), false, 'tapping still focuses the input');
+  assert.equal(dispatch('touchmove', 120), true, 'native viewport panning is cancelled from the first swipe');
+  assert.equal(input.scrollTop, 80);
+  assert.equal(dispatch('touchmove', -400), true);
+  assert.equal(input.scrollTop, 400, 'long draft clamps at its bottom');
+  assert.equal(dispatch('touchmove', -420), true, 'no handoff to the page at the bottom');
+  assert.equal(input.scrollTop, 400);
+  assert.equal(dispatch('touchmove', 400), true);
+  assert.equal(input.scrollTop, 0, 'reversing direction scrolls the same draft');
+  assert.equal(dispatch('touchmove', 450), true, 'no handoff at the top either');
+  assert.equal(input.value, 'A draft to preserve');
+  assert.equal(input.selectionStart, 3);
+  assert.equal(input.selectionEnd, 3);
+});
+
+test('an empty or short composer cannot initiate page scrolling', t => {
+  const { input, dispatch, dispose } = composerGesture(t, { clientHeight: 32, scrollHeight: 32 });
+  dispatch('touchstart', 200);
+  assert.equal(dispatch('touchmove', 196), false, 'small tap movement does not cancel focus');
+  assert.equal(dispatch('touchmove', 100), true);
+  assert.equal(input.scrollTop, 0);
+  assert.equal(dispatch('touchmove', 240), true);
+  assert.equal(input.scrollTop, 0);
+  dispose();
+  dispatch('touchstart', 200);
+  assert.equal(dispatch('touchmove', 100), false, 'listeners are removed on disconnect');
+});
+
+test('a swipe from a short input scrolls messages without handing the gesture to the page', t => {
+  const { root, input, dispatch } = composerGesture(t, { clientHeight: 32, scrollHeight: 32 });
+  const messages = { scrollTop: 100, clientHeight: 300, scrollHeight: 1000 };
+  root.querySelector = selector => selector === '.scroll-area' ? messages : null;
+  dispatch('touchstart', 200);
+  assert.equal(dispatch('touchmove', 100), true);
+  assert.equal(messages.scrollTop, 200);
+  assert.equal(input.scrollTop, 0);
+  assert.equal(dispatch('touchmove', -600), true);
+  assert.equal(messages.scrollTop, 700, 'messages clamp at the end without scrolling the page');
+  assert.equal(dispatch('touchmove', -650), true);
+  assert.equal(messages.scrollTop, 700);
+  assert.equal(dispatch('touchmove', 100), true);
+  assert.equal(messages.scrollTop, 0, 'reversing the swipe remains within the messages');
+});
+
+test('composer scroll handling preserves selection, long presses, horizontal editing and pinch zoom', t => {
+  const { input, dispatch } = composerGesture(t);
+  input.selectionEnd = 10;
+  dispatch('touchstart', 200);
+  assert.equal(dispatch('touchmove', 120), false, 'existing selection is left to native editing');
+  input.selectionEnd = input.selectionStart;
+  dispatch('touchstart', 200);
+  assert.equal(dispatch('touchmove', 120, { time: 600 }), false, 'long-press selection remains native');
+  dispatch('touchstart', 200);
+  assert.equal(dispatch('touchmove', 190, { x: 90 }), false, 'horizontal caret gestures remain native');
+  dispatch('touchstart', 200);
+  assert.equal(dispatch('touchmove', 120, { fingers: 2 }), false, 'pinch gesture remains native');
+  window.visualViewport.scale = 2;
+  dispatch('touchstart', 200);
+  assert.equal(dispatch('touchmove', 120), false, 'an already zoomed page can still be panned');
+  assert.equal(input.scrollTop, 0);
+});

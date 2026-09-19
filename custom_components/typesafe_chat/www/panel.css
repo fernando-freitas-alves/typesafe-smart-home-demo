@@ -93,6 +93,9 @@ button,select,summary{touch-action:manipulation}.thread{content-visibility:auto;
 .layout{position:fixed;top:var(--chat-top,0px);left:var(--chat-left,0px);width:var(--chat-width,100%);transform:none;overscroll-behavior:none}
 main{min-height:0}
 header,.sidebar-top,.composer-note,.send,.connection-status,.model-picker>summary{touch-action:pinch-zoom}
+/* Claim input swipes before WebKit starts panning the page. Vertical scrolling
+   is handled locally; taps, selection and pinch zoom remain available. */
+textarea#message{touch-action:pinch-zoom}
 .scroll-area,.sidebar nav,.model-options,textarea,.trace-payload pre,.ai-settings{overscroll-behavior:none}
 .conversation.empty{height:auto;min-height:100%;justify-content:center}
 textarea{max-height:min(180px,max(48px,calc(var(--chat-viewport,100dvh) - 230px)))}

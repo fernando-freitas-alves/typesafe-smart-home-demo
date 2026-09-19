@@ -34,14 +34,24 @@ export function canScrollInDirection({ position, size, contentSize }, delta) {
 
 // WebKit can scroll the page with the keyboard open even with overflow hidden.
 // Contain one-finger drags locally; preserve native scrolling, pinch zoom, range
-// controls and selects. No document-wide scroll lock or persistent HA styles.
+// controls and selects. The composer uses controlled scrolling because WebKit
+// can pan the visual viewport when a native swipe starts inside a text field.
 export function containChatScroll(root) {
   let previous;
-  const start = event => { previous = event.touches.length === 1 ? event.touches[0] : null; };
-  const end = () => { previous = null; };
+  let composer;
+  const start = event => {
+    previous = event.touches.length === 1 ? event.touches[0] : null;
+    const input = event.composedPath().find(node => node.nodeType === 1 && node.matches('textarea#message'));
+    composer = previous && input ? {
+      input, origin: previous, startedAt: event.timeStamp, dragging: false,
+      scroller: input.scrollHeight > input.clientHeight + 1 ? input : root.querySelector?.('.scroll-area') || input,
+      editing: input.selectionStart !== input.selectionEnd,
+    } : null;
+  };
+  const end = () => { previous = null; composer = null; };
   const move = event => {
     if (!previous || event.touches.length !== 1 || (window.visualViewport?.scale || 1) > 1) {
-      previous = null;
+      end();
       return;
     }
     const touch = event.touches[0];
@@ -49,6 +59,25 @@ export function containChatScroll(root) {
     const dy = touch.clientY - previous.clientY;
     previous = touch;
     if (!dx && !dy) return;
+    if (composer) {
+      const { scroller, origin } = composer;
+      if (!composer.dragging) {
+        const distanceX = touch.clientX - origin.clientX;
+        const distanceY = touch.clientY - origin.clientY;
+        // Leave taps, long-press selection and horizontal caret gestures native.
+        composer.editing ||= event.timeStamp - composer.startedAt >= 450;
+        if (composer.editing || Math.max(Math.abs(distanceX), Math.abs(distanceY)) < 6) return;
+        if (Math.abs(distanceX) > Math.abs(distanceY)) { composer.editing = true; return; }
+        composer.dragging = true;
+      }
+      if (composer.editing || !event.cancelable) return;
+      event.preventDefault();
+      // Keep the scroll target for the whole gesture. A short draft lets you
+      // swipe through messages; a long draft scrolls within the text field.
+      // Never hand either gesture back to WebKit's page/viewport scroller.
+      scroller.scrollTop = Math.max(0, Math.min(scroller.scrollHeight - scroller.clientHeight, scroller.scrollTop - dy));
+      return;
+    }
     const horizontal = Math.abs(dx) > Math.abs(dy);
     for (const node of event.composedPath()) {
       if (node === root) break;
@@ -65,13 +94,14 @@ export function containChatScroll(root) {
     if (event.cancelable) event.preventDefault();
   };
   root.addEventListener('touchstart', start, { passive: true });
-  root.addEventListener('touchmove', move, { passive: false });
+  root.addEventListener('touchmove', move, { passive: false, capture: true });
   root.addEventListener('touchend', end, { passive: true });
   root.addEventListener('touchcancel', end, { passive: true });
   return () => {
     root.removeEventListener('touchstart', start);
-    root.removeEventListener('touchmove', move);
+    root.removeEventListener('touchmove', move, { capture: true });
     root.removeEventListener('touchend', end);
     root.removeEventListener('touchcancel', end);
+    end();
   };
 }
