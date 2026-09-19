@@ -86,6 +86,10 @@ The panel uses **API v1** at `POST /api/typesafe_chat`. It shares conversation l
 
 Actual microphones, STT/TTS, and an HA Assist adapter are future integrations; no audio hardware is configured by this setup.
 
+## AyVolt shades
+
+The optional [AyVolt converter and deployment checks](zigbee2mqtt/README.md) support the `_TZE284_q9xty0ad` motors. Their actual position is separate from the requested target, so command acknowledgements never masquerade as completed movement.
+
 ## Data and access
 
 HA filters inventory by the signed-in user’s read permissions. Device calls use that user’s current HA token and must pass control permissions plus the app’s service allowlist. The bridge has no administrator-token fallback. HA tokens are held only during each request; model keys and bridge credentials stay server-side.

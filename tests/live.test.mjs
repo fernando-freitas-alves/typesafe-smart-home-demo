@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LiveHome, buildLiveQuestions, planLiveDecision } from '../live-engine.mjs';
-import { buildLiveInventory, validateLiveService } from '../live-home.mjs';
+import { buildLiveInventory, validateLiveService, serviceObserved } from '../live-home.mjs';
 import { HomeAssistantClient } from '../ha-client.mjs';
 import { identityProfile } from '../live-identity.mjs';
 
@@ -467,4 +467,15 @@ test('unknown-state commands are sent once and remain unconfirmed until the devi
   assert.equal(client.writes.length, 1); assert.equal(result.calls[0].observed, false);
   assert.equal(result.calls[0].after, 'Unknown state');
   await assert.rejects(home.apply(preview.planId)); assert.equal(client.writes.length, 1);
+});
+
+
+test('a partially open cover does not confirm arrival at the fully open target', () => {
+  const device = buildLiveInventory(fixture()).devices.find(d => d.entity_id === 'cover.study');
+  device.attributes.current_position = 35;
+  assert.equal(serviceObserved(manual('cover.study', 'open_cover'), device), false);
+  device.attributes.current_position = 100;
+  assert.equal(serviceObserved(manual('cover.study', 'open_cover'), device), true);
+  device.attributes.current_position = null;
+  assert.equal(serviceObserved(manual('cover.study', 'set_cover_position', { position: 0 }), device), false);
 });

@@ -147,6 +147,11 @@ export function serviceObserved(call, device) {
   if (call.data.brightness_pct !== undefined) return device.state === 'on' && Math.abs((device.attributes.brightness || 0) / 255 * 100 - call.data.brightness_pct) < 2;
   if (call.service === 'set_hvac_mode') return device.state === call.data.hvac_mode;
   if (call.service === 'set_temperature') return device.attributes.temperature === call.data.temperature;
-  if (call.service === 'set_cover_position') return Math.abs(device.attributes.current_position - call.data.position) < 2;
+  if (call.service === 'set_cover_position') return Number.isFinite(device.attributes.current_position) && Math.abs(device.attributes.current_position - call.data.position) < 2;
+  // A partially open shade is not confirmation that an 'open fully' request
+  // reached its destination. Prefer measured position when the device supplies it.
+  if (['open_cover', 'close_cover'].includes(call.service) && Number.isFinite(device.attributes.current_position)) {
+    return Math.abs(device.attributes.current_position - (call.service === 'open_cover' ? 100 : 0)) < 1;
+  }
   return ({ turn_on: ['on', 'idle', 'playing', 'paused'], turn_off: ['off'], open_cover: ['open', 'opening'], close_cover: ['closed', 'closing'], stop_cover: ['open', 'closed'], media_play: ['playing'], media_pause: ['paused'] }[call.service] || []).includes(device.state);
 }
