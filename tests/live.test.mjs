@@ -31,6 +31,26 @@ function fakeClient(raw = fixture()) {
 }
 const manual = (entity_id = 'light.study', service = 'turn_on', extra = {}) => ({ domain: entity_id.split('.')[0], service, data: { entity_id, ...extra } });
 const create = client => new LiveHome({ client, settings: () => ({}), settleMs: 0 });
+test('HA icon overrides, aliases and scoped label names survive inventory normalization and reach Jev choices', () => {
+  const raw = fixture();
+  raw.states[0].attributes.icon = 'mdi:spotlight';
+  Object.assign(raw.entities[0], { icon: 'hue:bulb-group-spot-hung', original_icon: 'mdi:lightbulb', aliases: [0, '', 'Spots'], labels: ['spot_lights'] });
+  raw.devices[0].labels = ['office'];
+  raw.labels = [{ label_id: 'spot_lights', name: 'Spotlights' }, { label_id: 'office', name: 'Office hardware' }, { label_id: 'unrelated', name: 'Unrelated label' }];
+  const inventory = buildLiveInventory(raw);
+  const lamp = inventory.devices.find(d => d.entity_id === 'light.study');
+  assert.equal(lamp.icon, 'hue:bulb-group-spot-hung');
+  assert.deepEqual(lamp.aliases, ['Spots']);
+  assert.deepEqual(lamp.labels, [{ id: 'spot_lights', name: 'Spotlights', source: 'entity' }, { id: 'office', name: 'Office hardware', source: 'device' }]);
+  assert.ok(!JSON.stringify(inventory).includes('Unrelated label'));
+  const criterion = buildLiveQuestions(inventory.devices).device.criteria[lamp.id];
+  assert.match(criterion, /hue:bulb-group-spot-hung/); assert.match(criterion, /Spotlights \(entity\)/); assert.match(criterion, /aliases: Spots/);
+  raw.entities[0].icon = null;
+  assert.equal(buildLiveInventory(raw).devices.find(d => d.entity_id === lamp.entity_id).icon, 'mdi:spotlight');
+  delete raw.states[0].attributes.icon;
+  assert.equal(buildLiveInventory(raw).devices.find(d => d.entity_id === lamp.entity_id).icon, 'mdi:lightbulb');
+});
+
 test('the chosen chat model reaches general answers and compound splitting', async () => {
   const received = [];
   const home = new LiveHome({ client: fakeClient(), settings: () => ({}), dependencies: {

@@ -8,7 +8,7 @@ import voluptuous as vol
 from homeassistant.auth.permissions.const import POLICY_READ, POLICY_CONTROL
 from homeassistant.components.http import HomeAssistantView, StaticPathConfig
 from homeassistant.components.panel_custom import async_register_panel
-from homeassistant.helpers import area_registry, device_registry, entity_registry
+from homeassistant.helpers import area_registry, device_registry, entity_registry, label_registry
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
 
@@ -27,11 +27,13 @@ def inventory_for(hass, user):
     registry = entity_registry.async_get(hass)
     hardware = device_registry.async_get(hass)
     areas = area_registry.async_get(hass)
+    labels = label_registry.async_get(hass)
+    label_ids = set()
     states, entities, device_ids, area_ids, controllable = [], [], set(), set(), []
     for state in hass.states.async_all():
         if state.domain not in DOMAINS or not user.permissions.check_entity(state.entity_id, POLICY_READ):
             continue
-        attrs = {key: value for key, value in state.attributes.items() if key in ATTRIBUTES}
+        attrs = {key: value for key, value in state.attributes.items() if key in ATTRIBUTES or key == "icon"}
         if isinstance(attrs.get("entity_id"), (list, tuple)):
             attrs["entity_id"] = [eid for eid in attrs["entity_id"] if user.permissions.check_entity(eid, POLICY_READ)]
         states.append({"entity_id": state.entity_id, "state": state.state, "attributes": attrs})
@@ -39,7 +41,8 @@ def inventory_for(hass, user):
             controllable.append(state.entity_id)
         entry = registry.async_get(state.entity_id)
         if entry:
-            entities.append({"entity_id": entry.entity_id, "name": entry.name, "area_id": entry.area_id, "device_id": entry.device_id, "aliases": list(entry.aliases), "disabled_by": bool(entry.disabled_by), "hidden_by": bool(entry.hidden_by), "entity_category": bool(entry.entity_category)})
+            entities.append({"entity_id": entry.entity_id, "name": entry.name, "area_id": entry.area_id, "device_id": entry.device_id, "aliases": list(entry.aliases), "icon": entry.icon, "original_icon": entry.original_icon, "labels": sorted(entry.labels), "disabled_by": bool(entry.disabled_by), "hidden_by": bool(entry.hidden_by), "entity_category": bool(entry.entity_category)})
+            label_ids.update(entry.labels)
             if entry.area_id:
                 area_ids.add(entry.area_id)
             if entry.device_id:
@@ -47,10 +50,13 @@ def inventory_for(hass, user):
     devices = []
     for device_id in device_ids:
         if device := hardware.async_get(device_id):
-            devices.append({"id": device.id, "area_id": device.area_id, "disabled_by": bool(device.disabled_by)})
+            devices.append({"id": device.id, "area_id": device.area_id, "labels": sorted(device.labels), "disabled_by": bool(device.disabled_by)})
+            label_ids.update(device.labels)
             if device.area_id:
                 area_ids.add(device.area_id)
-    return {"states": states, "entities": entities, "devices": devices, "areas": [{"area_id": area.id, "name": area.name} for area in areas.areas.values() if area.id in area_ids], "temperatureUnit": hass.config.units.temperature_unit, "controlEntities": controllable}
+    # Only export labels attached to readable entities or their hardware.
+    attached_labels = [{"label_id": label.label_id, "name": label.name} for label in labels.labels.values() if label.label_id in label_ids]
+    return {"states": states, "entities": entities, "devices": devices, "labels": attached_labels, "areas": [{"area_id": area.id, "name": area.name} for area in areas.areas.values() if area.id in area_ids], "temperatureUnit": hass.config.units.temperature_unit, "controlEntities": controllable}
 
 
 class ChatView(HomeAssistantView):

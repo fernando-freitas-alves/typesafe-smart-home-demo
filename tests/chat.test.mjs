@@ -29,6 +29,30 @@ async function setup(t) {
   return { ...fake, actor, store, service, directory };
 }
 const location = 'office__space_bathroom';
+test('follow-up resolution receives permitted fixture metadata and exact location, without identifying a voice speaker', async t => {
+  const { service, client } = await setup(t);
+  Object.assign(client.raw.entities[0], { icon: 'hue:bulb-group-spot-hung', aliases: ['Spotlights'], labels: ['spots'] });
+  client.raw.labels = [{ label_id: 'spots', name: 'Spot lights' }];
+  client.raw.states[0].attributes.private_token = 'must-not-reach-model';
+  let context;
+  service.resolve = async (text, previous, signal, model, metadata) => { context = metadata; return { command: text }; };
+  await service.handle({ op: 'location', location });
+  await service.handle({ op: 'send', text: 'Turn on that spot lights' });
+  assert.equal(context.user.name, 'Fernando Test');
+  assert.equal(context.user.location.id, location);
+  assert.equal(context.user.location.space, 'bathroom');
+  const desk = context.devices.find(device => device.entity_id === 'light.desk');
+  assert.equal(desk.icon, 'hue:bulb-group-spot-hung');
+  assert.deepEqual(desk.aliases, ['Spotlights']);
+  assert.equal(desk.labels[0].name, 'Spot lights');
+  assert.ok(!JSON.stringify(context).includes('must-not-reach-model'));
+  await service.handle({ op: 'new', apiVersion: 1, client: { kind: 'voice', deviceId: 'mic' }, location });
+  await service.handle({ op: 'send', text: 'Turn on the lights' });
+  assert.equal(context.user.name, null); assert.equal(context.user.office, null);
+  assert.equal(context.user.location.id, location);
+  assert.equal(client.writes.length, 0);
+});
+
 async function pending(service) {
   await service.handle({ op: 'location', location });
   return service.handle({ op: 'send', text: 'Turn on the lights', requestId: crypto.randomUUID() });

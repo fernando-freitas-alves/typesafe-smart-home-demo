@@ -43,7 +43,9 @@ test('provider errors expose safe request diagnostics without retaining an upstr
 test('Anthropic follow-up retains the actual context request and parsed provider response', async t => {
   key(t, 'ANTHROPIC_API_KEY', 'private-anthropic-key'); let sent;
   t.mock.method(globalThis, 'fetch', async (url, options) => { sent = JSON.parse(options.body); return Response.json({ model: 'claude-test', content: [{ type: 'text', text: '{"command":"Turn on the bathroom mirror","clarification":null}' }], usage: { input_tokens: 20 }, stop_reason: 'end_turn' }); });
-  const result = await contextualizeChat('Only the mirror', [{ role: 'user', text: 'Turn on the lights' }]);
+  const context = { user: { name: 'Fernando', location: { id: 'bathroom' } }, devices: [{ name: 'Bathroom mirror', icon: 'mdi:mirror', aliases: ['Vanity'], labels: [] }] };
+  const result = await contextualizeChat('Only the mirror', [{ role: 'user', text: 'Turn on the lights' }], undefined, undefined, context);
+  assert.deepEqual(JSON.parse(sent.messages[0].content).context, context);
   assert.deepEqual(result.diagnostics.request.body, sent); assert.equal(result.command, 'Turn on the bathroom mirror');
   assert.equal(result.diagnostics.response.body.model, 'claude-test'); assert.ok(!JSON.stringify(result.diagnostics).includes('private-anthropic-key'));
 });

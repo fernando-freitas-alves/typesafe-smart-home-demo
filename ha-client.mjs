@@ -36,7 +36,7 @@ export class HomeAssistantClient {
     const value = await new Promise((resolve, reject) => {
       const socket = new this.WebSocket(url);
       const results = {}; let settled = false;
-      const types = ['config/area_registry/list', 'config/device_registry/list', 'config/entity_registry/list'];
+      const types = ['config/area_registry/list', 'config/device_registry/list', 'config/entity_registry/list', 'config/label_registry/list'];
       const finish = (error, data) => {
         if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort);
         socket.close(); error ? reject(error) : resolve(data);
@@ -56,7 +56,7 @@ export class HomeAssistantClient {
           else if (message.type === 'result') {
             if (!message.success) return finish(new Error('Home Assistant could not list rooms and devices. Check token permissions.'));
             results[message.id] = message.result;
-            if (Object.keys(results).length === types.length) finish(null, { areas: results[1], devices: results[2], entities: results[3] });
+            if (Object.keys(results).length === types.length) finish(null, { areas: results[1], devices: results[2], entities: results[3], labels: results[4] });
           }
         } catch { finish(new Error('Home Assistant returned invalid discovery data.')); }
       });

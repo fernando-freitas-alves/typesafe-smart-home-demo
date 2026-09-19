@@ -21,6 +21,7 @@ function physicalRoom(areaId, areaName, name, aliases) {
 export function buildLiveInventory(raw, { haSwitchEntities = [] } = {}) {
   const registry = new Map(raw.entities.map(e => [e.entity_id, e]));
   const hardware = new Map(raw.devices.map(d => [d.id, d]));
+  const labelNames = new Map((raw.labels || []).map(label => [label.label_id, label.name]));
   const areaNames = new Map(raw.areas.map(a => [a.area_id, a.name]));
   const overrides = new Map(raw.states.filter(s => s.entity_id.startsWith('sensor.lighting_override_')).map(s => [s.attributes.light, { state: s.state, remainingMinutes: s.attributes.remaining_minutes, protected: s.attributes.protected }]));
   const devices = [];
@@ -34,14 +35,17 @@ export function buildLiveInventory(raw, { haSwitchEntities = [] } = {}) {
     if (kind === 'sensor' && !sensorClasses.has(state.attributes.device_class)) continue;
     const areaId = entry?.area_id || device?.area_id || 'unassigned';
     const areaName = areaNames.get(areaId) || 'Unassigned';
-    const aliases = entry?.aliases || [];
+    const aliases = (entry?.aliases || []).filter(alias => typeof alias === 'string' && alias.trim());
+    const icon = entry?.icon || state.attributes.icon || entry?.original_icon || null;
+    const labels = [['entity', entry?.labels], ['device', device?.labels]].flatMap(([source, ids]) =>
+      (ids || []).map(id => ({ id, name: labelNames.get(id) || id, source })));
     const space = areaId === 'unassigned' ? { id: areaId, name: areaName, space: 'main' } : physicalRoom(areaId, areaName, name, aliases);
     const attrs = Object.fromEntries(attributes.filter(key => state.attributes[key] !== undefined).map(key => [key, state.attributes[key]]));
     const denied = raw.controlEntities && !raw.controlEntities.includes(state.entity_id);
     const readOnly = denied || kind === 'sensor' || kind === 'lock' || (domain === 'switch' && !haSwitchEntities.includes(state.entity_id));
     const available = !['unknown', 'unavailable'].includes(state.state);
     devices.push({ entity_id: state.entity_id, id: state.entity_id.replace('.', '__'), domain, kind, name, room: space.id,
-      roomName: space.name, areaId, areaName, space: space.space, aliases, state: state.state, attributes: attrs,
+      roomName: space.name, areaId, areaName, space: space.space, aliases, icon, labels, state: state.state, attributes: attrs,
       temperatureUnit: raw.temperatureUnit, available, readOnly,
       readOnlyReason: denied ? 'Your Home Assistant account cannot control this device.' : kind === 'sensor' ? 'Sensor · read only' : kind === 'lock' ? 'Locks are read only on this page.' : readOnly ? 'Switch control is not enabled in the local configuration.' : '',
       override: overrides.get(state.entity_id) || null });

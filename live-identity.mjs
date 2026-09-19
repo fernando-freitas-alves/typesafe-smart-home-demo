@@ -25,6 +25,12 @@ export function identityProfile(id = 'other', rooms = []) {
   return { ...identity, office: matches.length === 1 ? matches[0] : null };
 }
 
+export function liveUserContext(rooms, { actor, identity = 'other', anonymous = false, location = '' } = {}) {
+  const person = identityProfile(anonymous ? 'other' : actor ? identityForName(actor.name) : identity, rooms);
+  return { name: anonymous ? null : actor ? actor.name : identity === 'other' ? null : person.name,
+    office: person.office, location: rooms.find(room => room.id === location) || null };
+}
+
 export function validatePersonalReferences(command, user, room = '') {
   if (/\bmy\s+office\b|\bmeu\s+escrit[oó]rio\b/i.test(command)) {
     if (!user.office) throw new Error(!user.name

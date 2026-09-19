@@ -3,6 +3,7 @@ import { contextualizeChat, config } from './providers.mjs';
 import { redactDiagnostics } from './trace-utils.mjs';
 import { deviceCollection, deviceComponent, resolveComponentAction } from './chat-components.mjs';
 import { sharedLlm } from './llm-settings.mjs';
+import { liveUserContext } from './live-identity.mjs';
 
 const approval = /^(?:yes(?: please)?|apply(?: all)?|confirm|go ahead|do it|ok(?:ay)?|sim|pode aplicar|confirmar)[.!\s]*$/i;
 export const isApproval = text => typeof text === 'string' && approval.test(text);
@@ -91,7 +92,11 @@ export class ChatService {
       else {
         this.invalidate(thread); thread.waitingCommand = null;
         try {
-          const resolved = await this.resolve(text, history, signal, thread.model || 'default');
+          const context = {
+            user: liveUserContext(snapshot.rooms, { actor: this.actor, location: thread.location, anonymous: thread.source?.kind === 'voice' }),
+            devices: snapshot.devices.map(({ entity_id, name, kind, room, roomName, aliases, icon, labels }) => ({ entity_id, name, kind, room, roomName, aliases, icon, labels })),
+          };
+          const resolved = await this.resolve(text, history, signal, thread.model || 'default', context);
           if (resolved.clarification) thread.messages.push(message('assistant', resolved.clarification, { expectsReply: true, tools: resolved.diagnostics ? [contextTool(resolved, text)] : [] }));
           else await this.preview(thread, resolved.command, signal, resolved);
         } catch (error) { thread.messages.push(message('assistant', error.message, { error: true, tools: failedTool(error) })); }
