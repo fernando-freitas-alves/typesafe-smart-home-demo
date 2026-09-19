@@ -16,6 +16,7 @@ assert.equal(definition.fingerprint[0].manufacturerName, '_TZE284_q9xty0ad');
 assert.deepEqual(read(8, 0), { position: 100, state: 'OPEN' });
 assert.deepEqual(read(8, 100), { position: 0, state: 'CLOSE' });
 assert.deepEqual(read(8, 64), { position: 36, state: 'OPEN' });
+assert.deepEqual(read(8, 87), { position: 13, state: 'OPEN' }); // Shade 2 after observed Stop.
 assert.deepEqual(read(8, 100, true), { position: 100, state: 'OPEN' });
 for (const invalid of [-1, 101, 255, null, '50', 1.5]) assert.deepEqual(read(8, invalid), {});
 assert.deepEqual(read(9, 0), { target_position: 100 });
