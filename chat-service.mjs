@@ -34,8 +34,9 @@ export class ChatService {
   async handle(input, signal) {
     const data = await this.store.load(this.actor.id);
     if (!data.threads.length) data.threads.push(newThread());
-    let thread = input.threadId ? data.threads.find(item => item.id === input.threadId && !item.archived) : data.threads.find(item => item.id === data.activeThreadId && !item.archived) || data.threads.find(item => !item.archived);
+    let thread = input.threadId ? data.threads.find(item => item.id === input.threadId) : data.threads.find(item => item.id === data.activeThreadId) || data.threads.find(item => !item.archived) || data.threads[0];
     if (!thread) throw new Error('That chat is not available for your Home Assistant account.');
+    if (thread.archived && !['bootstrap', 'open', 'new', 'archive'].includes(input.op)) throw new Error('Restore this archived chat before continuing it.');
     if (input.op === 'open' && input.toolDetailsId) {
       const tool = thread.messages.flatMap(item => item.tools || []).find(item => item.detailsId === input.toolDetailsId);
       if (!tool) throw new Error('These tool details do not belong to this chat.');
@@ -46,7 +47,7 @@ export class ChatService {
       thread = newThread(); data.threads.unshift(thread);
     }
     const snapshot = await this.home.snapshot(signal);
-    if (thread.location && !snapshot.rooms.some(room => room.id === thread.location)) { thread.location = ''; this.invalidate(thread, 'expired'); }
+    if (!thread.archived && thread.location && !snapshot.rooms.some(room => room.id === thread.location)) { thread.location = ''; this.invalidate(thread, 'expired'); }
     for (const item of thread.messages) if (item.form?.status === 'pending' && (!this.home.pending.has(item.form.planId) || Date.now() >= Date.parse(item.form.expiresAt))) item.form.status = 'expired';
     for (const item of [...thread.messages]) if (item.form?.status === 'applying') {
       item.form.status = 'unconfirmed';
@@ -99,13 +100,25 @@ export class ChatService {
       if (typeof input.title !== 'string' || !input.title.trim() || input.title.length > 80) throw new Error('Use a chat title between 1 and 80 characters.');
       thread.title = input.title.trim();
     } else if (input.op === 'archive') {
-      this.invalidate(thread, 'cancelled'); thread.archived = true;
-      thread = data.threads.find(item => !item.archived) || newThread();
-      if (!data.threads.some(item => item.id === thread.id)) data.threads.unshift(thread);
+      if (input.archived !== undefined && typeof input.archived !== 'boolean') throw new Error('Choose whether to archive or restore the chat.');
+      const target = input.targetThreadId ? data.threads.find(item => item.id === input.targetThreadId) : thread;
+      if (!target) throw new Error('That chat is not available for your Home Assistant account.');
+      const archived = input.archived !== false;
+      if (!archived && target.archived && data.threads.filter(item => !item.archived).length >= 100) throw new Error('You have 100 chats. Archive a chat before restoring another.');
+      if (Boolean(target.archived) !== archived) {
+        this.invalidate(target, 'cancelled'); target.waitingCommand = null;
+        target.archived = archived;
+        if (archived) target.archivedAt = new Date().toISOString();
+        else { delete target.archivedAt; target.updatedAt = new Date().toISOString(); }
+      }
+      if (archived && target.id === thread.id) {
+        thread = data.threads.find(item => item.id === data.activeThreadId && !item.archived) || data.threads.filter(item => !item.archived).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] || newThread();
+        if (!data.threads.some(item => item.id === thread.id)) data.threads.unshift(thread);
+      }
     } else if (!['bootstrap', 'open', 'new'].includes(input.op)) throw new Error('Unknown chat operation.');
     if (requestId) thread.receipts = [...thread.receipts, requestId].slice(-50);
     data.activeThreadId = thread.id;
-    thread.updatedAt = new Date().toISOString();
+    if (!['bootstrap', 'open', 'archive'].includes(input.op)) thread.updatedAt = new Date().toISOString();
     // Keep a bounded conversation while leaving previously saved chats intact.
     if (thread.messages.length > 300) thread.messages = thread.messages.slice(-300);
     await this.persistDetails(thread);
@@ -121,9 +134,12 @@ export class ChatService {
     }
   }
   response(data, thread, snapshot) {
+    const summary = item => ({ id: item.id, title: item.title, updatedAt: item.updatedAt, archivedAt: item.archivedAt,
+      preview: [...item.messages].reverse().find(message => ['user', 'assistant'].includes(message.role))?.text.replace(/\s+/g, ' ').slice(0, 160) || 'Start a conversation with your home.' });
     return { user: { id: this.actor.id, name: this.actor.name }, rooms: snapshot.rooms,
-      threads: data.threads.filter(item => !item.archived).map(({ id, title, updatedAt }) => ({ id, title, updatedAt })).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
-      thread: { id: thread.id, title: thread.title, location: thread.location, messages: thread.messages }, connected: true };
+      threads: data.threads.filter(item => !item.archived).map(summary).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+      archivedThreads: data.threads.filter(item => item.archived).map(summary).sort((a, b) => (b.archivedAt || b.updatedAt).localeCompare(a.archivedAt || a.updatedAt)),
+      thread: { id: thread.id, title: thread.title, location: thread.location, messages: thread.messages, archived: Boolean(thread.archived) }, connected: true };
   }
   async preview(thread, command, signal, context = {}, manual) {
     try {
