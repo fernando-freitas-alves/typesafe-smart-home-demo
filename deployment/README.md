@@ -26,6 +26,21 @@ This setup uses two containers with **host networking** on the same host: your e
 
 The bridge listens only on `127.0.0.1:5189`. Do not publish that port or add an iframe URL. The panel and its API travel through HA’s existing authenticated origin, including your existing HTTPS remote-access proxy. If your containers use another network arrangement, use a private shared container network and adapt the two internal URLs; do not expose the bridge to the internet.
 
+## Add an Overview tab
+
+1. In **Settings → Dashboards → Resources**, add `/typesafe-chat/card.js?v=1` as a **JavaScript module**. Enable Advanced Mode in your profile if Resources is hidden.
+2. Edit **Overview**, add a **Panel** view named **Home chat**, and use this view configuration:
+
+   ```yaml
+   title: Home chat
+   path: home-chat
+   type: panel
+   cards:
+     - type: custom:typesafe-chat-card
+   ```
+
+Open **Overview → Home chat** (`/lovelace/home-chat`). The tab shares the sidebar panel's chats, identity, theme, and API. Its height fits below the dashboard tabs, including on mobile. Resource and API URLs stay relative to HA, so local and remote access use the same configuration. The standalone `/home-chat` panel remains available.
+
 ## Connect ChatGPT once
 
 Open **Home chat → chat history → gear (AI settings) → Connect ChatGPT** as an HA administrator. Open the sign-in link and enter the code; the panel updates when sign-in completes. If needed, enable device-code sign-in in ChatGPT’s security settings. This works from local and remote HA because it does not use a localhost browser callback.

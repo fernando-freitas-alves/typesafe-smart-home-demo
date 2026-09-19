@@ -28,7 +28,7 @@ The server reads `TYPESAFE_API_KEY` from the root `.env`. It rereads configurati
 
 ## Chat inside Home Assistant
 
-**HA → Home chat** provides a ChatGPT-style conversation using HA’s login and theme. It works through the same local or remote HA address, with no laptop server needed.
+**HA → Home chat**, also available as an **Overview → Home chat** tab, provides a ChatGPT-style conversation using HA’s login and theme. It works through the same local or remote HA address, with no laptop server needed. [Add the Overview tab →](deployment/README.md#add-an-overview-tab)
 
 - Shared ChatGPT subscription login and model picker in **chat history → AI settings**; fast model preset by default. No OpenAI/Anthropic API key for this panel; Jev still needs its TypeSafe key.
 - Automatic HA identity; manual room/bathroom selection in each chat.

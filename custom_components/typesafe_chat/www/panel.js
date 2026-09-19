@@ -9,11 +9,14 @@ const statuses = { applied: 'Sent to Home Assistant', revised: 'Replaced by your
 export class HomeChatPanel extends HTMLElement {
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
-    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=9', import.meta.url); stylesheet.onload = () => this.scrollBottom();
+    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=10', import.meta.url); stylesheet.onload = () => { this.onResize(); this.scrollBottom(); };
     this.view = document.createElement('div'); this.view.style.display = 'contents'; this.shadowRoot.append(stylesheet, this.view);
     this.sidebar = false; this.historyMode = 'chats'; this.historyQuery = ''; this.historyNotice = null; this.busy = false; this.data = null; this.draft = ''; this.error = ''; this.started = false; this.selections = new Map(); this.toolDetails = new Map(); this.componentValues = new Map();
     this.onResize = () => {
-      this.style.setProperty('--chat-viewport', `${window.visualViewport?.height || window.innerHeight}px`);
+      const viewport = window.visualViewport;
+      const top = this.hasAttribute('dashboard') ? Math.max(0, this.getBoundingClientRect().top - (viewport?.offsetTop || 0)) : 0;
+      const height = `${Math.max(0, Math.floor((viewport?.height || window.innerHeight) - top))}px`;
+      if (this.style.getPropertyValue('--chat-viewport') !== height) this.style.setProperty('--chat-viewport', height);
       const main = this.shadowRoot.querySelector('main');
       if (main) main.inert = this.sidebar && matchMedia('(max-width: 700px)').matches;
     };
@@ -27,11 +30,11 @@ export class HomeChatPanel extends HTMLElement {
   }
   set narrow(value) { this._narrow = value; this.toggleAttribute('narrow', Boolean(value)); }
   connectedCallback() {
-    this.render(); this.onResize(); window.visualViewport?.addEventListener('resize', this.onResize);
+    this.render(); this.onResize(); window.visualViewport?.addEventListener('resize', this.onResize); window.addEventListener('resize', this.onResize);
     if (this._hass && !this.started) this.start();
     this.expiryTimer = setInterval(() => this.expireForms(), 1000);
   }
-  disconnectedCallback() { this.shadowRoot.querySelector('.ai-settings')?.close(); clearInterval(this.expiryTimer); window.visualViewport?.removeEventListener('resize', this.onResize); }
+  disconnectedCallback() { this.shadowRoot.querySelector('.ai-settings')?.close(); clearInterval(this.expiryTimer); window.visualViewport?.removeEventListener('resize', this.onResize); window.removeEventListener('resize', this.onResize); }
   updateAccountBadge() {
     const badge = this.shadowRoot.querySelector('ha-user-badge');
     // Reuse HA's photo/initials rendering, including older versions that need hass.
