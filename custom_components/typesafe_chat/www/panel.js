@@ -10,7 +10,7 @@ const statuses = { applied: 'Sent to Home Assistant', revised: 'Replaced by your
 export class HomeChatPanel extends HTMLElement {
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
-    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=11', import.meta.url); stylesheet.onload = () => { this.onResize(); this.scrollBottom(); };
+    const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = new URL('./panel.css?v=12', import.meta.url); stylesheet.onload = () => { this.onResize(); this.scrollBottom(); };
     this.view = document.createElement('div'); this.view.style.display = 'contents'; this.shadowRoot.append(stylesheet, this.view);
     this.sidebar = false; this.historyMode = 'chats'; this.historyQuery = ''; this.historyNotice = null; this.busy = false; this.data = null; this.draft = ''; this.error = ''; this.started = false; this.selections = new Map(); this.toolDetails = new Map(); this.componentValues = new Map();
     this.modelChoices = new Map(); this.modelState = null; this.modelError = ''; this.modelsLoading = false;
