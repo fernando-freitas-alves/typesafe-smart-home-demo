@@ -42,3 +42,13 @@ The motor-controller version byte `0x40` decodes to **1.0.0** under [Tuya's MCU 
 The strongest next evidence is the **exact `q9xty0ad` product's DP ID/name/type/access mapping**, available through the original app/cloud device definition if a record still exists. Zigbee2MQTT documents an [official-app workflow for finding DP names](https://www.zigbee2mqtt.io/advanced/support-new-devices/03_find_tuya_data_points.html). Standardized cloud function lists may omit manufacturer-specific fields, so the raw DP mapping matters.
 
 Alternatively, capture the original app's known control operations or, with physical access, the module/MCU serial exchange. A write experiment should test an identified operation with a known restoration procedure; setting an unknown Boolean to true would not establish that it enables reporting and could alter limits or operating mode. No such write is implemented in the production converter.
+
+## Follow-up: original app/cloud definition
+
+A fresh, read-only query through the Tuya sharing SDK and HA's existing valid session confirmed that the connected account has **no matching shade record**. This checked the live home/device lists, not only HA's cached diagnostics. No token refresh, device command, or configuration change was performed.
+
+The installed HA sharing SDK retrieves specifications and raw status strategy by **cloud device ID**. A Zigbee IEEE address or the manufacturer string cannot be substituted for that ID. A separate Tuya app account may still hold the required record; whether these shades were ever paired through an original-app gateway remains unconfirmed.
+
+If a record is available, retrieve its product ID and complete DP mapping, including each field's numeric ID, code/name, type, and read/write access. Check that the product is `q9xty0ad` before assigning a meaning to DP104. Tuya's [app SDK also exposes product thing-model lookup](https://developer.tuya.com/en/docs/app-development/devicemanage?id=Ka6ki8r2rfiuu), but that is a separate SDK capability, not an endpoint provided by HA's sharing client. Standardized function lists alone may omit the custom field.
+
+The cloud-definition approach is therefore **pending access to a matching original-app product/device record**. This result does not identify DP104 or establish that continuous measured position reporting can be enabled. The tested converter and estimated UI animation remain unchanged.
