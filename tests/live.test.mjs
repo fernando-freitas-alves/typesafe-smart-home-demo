@@ -479,3 +479,12 @@ test('a partially open cover does not confirm arrival at the fully open target',
   device.attributes.current_position = null;
   assert.equal(serviceObserved(manual('cover.study', 'set_cover_position', { position: 0 }), device), false);
 });
+
+test('Stop is not confirmed by an unchanged cached cover position', () => {
+  const device = buildLiveInventory(fixture()).devices.find(d => d.entity_id === 'cover.study');
+  const call = manual('cover.study', 'stop_cover');
+  assert.equal(serviceObserved(call, device, device), false);
+  assert.equal(serviceObserved(call, device), false);
+  assert.equal(serviceObserved(call, device, { ...device, state: 'opening' }), true);
+  assert.equal(serviceObserved(call, { ...device, state: 'closing' }, { ...device, state: 'closing' }), false);
+});

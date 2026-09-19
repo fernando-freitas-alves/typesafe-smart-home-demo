@@ -142,7 +142,7 @@ export function serviceLabel(call, device) {
   const action = call.data.brightness_pct !== undefined ? `Set brightness to ${call.data.brightness_pct}%` : call.service === 'set_temperature' ? `Set temperature to ${call.data.temperature}${device.temperatureUnit}` : call.service === 'set_hvac_mode' ? `Set mode to ${call.data.hvac_mode}` : call.service === 'set_cover_position' ? `Set to ${call.data.position}% open` : actions[call.service] || call.service;
   return `${action} · ${device.name} (${device.roomName})`;
 }
-export function serviceObserved(call, device) {
+export function serviceObserved(call, device, before) {
   if (!device?.available) return false;
   if (call.data.brightness_pct !== undefined) return device.state === 'on' && Math.abs((device.attributes.brightness || 0) / 255 * 100 - call.data.brightness_pct) < 2;
   if (call.service === 'set_hvac_mode') return device.state === call.data.hvac_mode;
@@ -153,5 +153,8 @@ export function serviceObserved(call, device) {
   if (['open_cover', 'close_cover'].includes(call.service) && Number.isFinite(device.attributes.current_position)) {
     return Math.abs(device.attributes.current_position - (call.service === 'open_cover' ? 100 : 0)) < 1;
   }
-  return ({ turn_on: ['on', 'idle', 'playing', 'paused'], turn_off: ['off'], open_cover: ['open', 'opening'], close_cover: ['closed', 'closing'], stop_cover: ['open', 'closed'], media_play: ['playing'], media_pause: ['paused'] }[call.service] || []).includes(device.state);
+  // An old static position is not evidence that Stop reached the motor. HA
+  // must have reported movement before the command and a stationary state after.
+  if (call.service === 'stop_cover') return ['opening', 'closing'].includes(before?.state) && ['open', 'closed'].includes(device.state);
+  return ({ turn_on: ['on', 'idle', 'playing', 'paused'], turn_off: ['off'], open_cover: ['open', 'opening'], close_cover: ['closed', 'closing'], media_play: ['playing'], media_pause: ['paused'] }[call.service] || []).includes(device.state);
 }

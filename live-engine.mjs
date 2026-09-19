@@ -198,7 +198,7 @@ export class LiveHome {
       catch { refreshed = { ...current, stale: true }; failure ||= 'Commands were sent, but current states could not be refreshed. Check Home Assistant before retrying.'; }
       for (const call of calls) {
         const d = refreshed.devices.find(d => d.entity_id === call.data.entity_id);
-        call.observed = !refreshed.stale && serviceObserved(call, d);
+        call.observed = !refreshed.stale && serviceObserved(call, d, current.devices.find(before => before.entity_id === call.data.entity_id));
         call.after = refreshed.stale ? 'State unavailable' : d ? liveLabel(d) : 'Device no longer available';
       }
       const observed = calls.filter(c => c.observed).length;
