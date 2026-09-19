@@ -48,6 +48,8 @@ A single read-only Tuya `dataQuery` was tested on shade 4 at 05:30:53 UTC. It pr
 
 This does not establish that every possible firmware mechanism is unavailable, but it provides no basis for enabling periodic queries or promising live measurements. Keep `/get` unadvertised until a repeatable read actually returns DP8. Any further protocol work should capture raw reports during an authorized movement and verify a candidate read/reporting method before changing the production converter. The [upstream related `_TZE204` device](https://www.zigbee2mqtt.io/devices/TZE204_q9xty0ad.html) also documents position as unavailable through `/get`; it is a different variant, so our live evidence takes precedence.
 
+**Follow-up:** a controlled 21% → 35% → 21% test queried shade 4 during travel. DP104 remained false while idle and opening; actual DP8 reports still arrived only at the destinations. A separate MCU-version query returned `0x40` (1.0.0). See the [packet analysis and remaining hypotheses](PROTOCOL-INVESTIGATION.md). DP104's function remains unidentified; the production converter has no speculative mapping or write for it.
+
 ## Evidence and troubleshooting
 
 - Live logs from this manufacturer variant contain actual DP8 reports (including 0, 64, and 100) and separate DP9 target acknowledgements.
