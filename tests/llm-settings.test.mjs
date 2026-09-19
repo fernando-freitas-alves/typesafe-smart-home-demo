@@ -87,9 +87,9 @@ test('private settings bridge enforces authentication and trusted HA admin role'
   const status = await (await post(secret, { id: 'guest' }, { apiVersion: 1, op: 'status' })).json(); assert.equal(status.connected, true); assert.equal(status.account, undefined);
 });
 test('Codex uses isolated ephemeral threads, sanitized environment, and no execution environments', async t => {
-  const { directory } = await setup(t); const packets = []; let spawnOptions; let child;
-  const spawnProcess = (_binary, _args, options) => {
-    spawnOptions = options; child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => child.emit('exit', 0);
+  const { directory } = await setup(t); const packets = []; let spawnOptions; let spawnArgs; let child;
+  const spawnProcess = (_binary, args, options) => {
+    spawnArgs = args; spawnOptions = options; child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => child.emit('exit', 0);
     const emit = packet => child.stdout.write(JSON.stringify(packet) + '\n');
     child.stdin = new Writable({ write(data, _encoding, done) {
       const packet = JSON.parse(data); packets.push(packet);
@@ -110,9 +110,14 @@ test('Codex uses isolated ephemeral threads, sanitized environment, and no execu
   assert.equal((await p.complete({ model: 'gpt-5.6-luna', effort: 'low', command: 'test', system: 'Be brief' })).text, 'Answer only');
   await p.complete({ model: 'gpt-5.6-luna', effort: 'low', command: 'unrelated', system: 'Be brief' });
   assert.equal(spawnOptions.env.ANTHROPIC_API_KEY, undefined); assert.equal(spawnOptions.env.CHAT_BRIDGE_TOKEN, undefined); assert.equal(spawnOptions.env.HA_TOKEN, undefined);
+  assert.ok(spawnArgs.includes('permissions.home-chat-text.filesystem={ ":root" = "deny", ":workspace_roots" = { "." = "read" } }'));
   const starts = packets.filter(x => x.method === 'thread/start'); assert.equal(starts.length, 2); assert.ok(starts.every(x => x.params.ephemeral));
   assert.deepEqual(starts[0].params.environments, []); assert.equal(starts[0].params.config['features.shell_tool'], false);
-  const turn = packets.find(x => x.method === 'turn/start'); assert.equal(turn.params.sandboxPolicy.access.type, 'restricted'); assert.deepEqual(turn.params.environments, []);
+  assert.equal(starts[0].params.permissions, 'home-chat-text'); assert.equal(starts[0].params.sandbox, undefined);
+  assert.equal(starts[0].params.config.sandbox_mode, undefined);
+  assert.deepEqual(starts[0].params.config['permissions.home-chat-text.filesystem'], { ':root': 'deny', ':workspace_roots': { '.': 'read' } });
+  assert.equal(starts[0].params.config['permissions.home-chat-text.network.enabled'], false);
+  const turn = packets.find(x => x.method === 'turn/start'); assert.equal(turn.params.permissions, 'home-chat-text'); assert.equal(turn.params.sandboxPolicy, undefined); assert.deepEqual(turn.params.environments, []);
 });
 test('a turn accepted after the response deadline is still interrupted', async t => {
   const { directory } = await setup(t); const calls = [];

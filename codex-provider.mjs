@@ -6,7 +6,10 @@ import { EventEmitter } from 'node:events';
 
 export const CODEX_CONFIG = {
   forced_login_method: 'chatgpt', cli_auth_credentials_store: 'file',
-  approval_policy: 'never', sandbox_mode: 'read-only', web_search: 'disabled',
+  approval_policy: 'never', web_search: 'disabled',
+  default_permissions: 'home-chat-text',
+  'permissions.home-chat-text.filesystem': { ':root': 'deny', ':workspace_roots': { '.': 'read' } },
+  'permissions.home-chat-text.network.enabled': false,
   project_doc_max_bytes: 0, personality: 'none',
   'features.shell_tool': false, 'features.unified_exec': false,
   'features.apply_patch_freeform': false, 'features.multi_agent': false,
@@ -14,6 +17,11 @@ export const CODEX_CONFIG = {
   'agents.enabled': false, 'analytics.enabled': false,
 };
 const failure = message => new Error(message);
+// CLI overrides split dotted key paths literally. Keep special filesystem keys
+// inside an inline TOML table, while the RPC config receives the object itself.
+const tomlValue = value => value && typeof value === 'object'
+  ? `{ ${Object.entries(value).map(([key, item]) => `${JSON.stringify(key)} = ${tomlValue(item)}`).join(', ')} }`
+  : JSON.stringify(value);
 export function turnError(error) {
   const info = JSON.stringify(error?.codexErrorInfo || '');
   if (/usageLimit|rateLimit|sessionBudget/i.test(info)) return failure('The shared ChatGPT subscription has reached its usage limit. Try again after it resets; no paid API fallback was used.');
@@ -36,7 +44,7 @@ export class CodexProvider extends EventEmitter {
   }
   async launch() {
     await mkdir(this.workspace, { recursive: true, mode: 0o700 }); await chmod(this.directory, 0o700);
-    const args = ['app-server', '--listen', 'stdio://', ...Object.entries(CODEX_CONFIG).flatMap(([key, value]) => ['-c', `${key}=${JSON.stringify(value)}`])];
+    const args = ['app-server', '--listen', 'stdio://', ...Object.entries(CODEX_CONFIG).flatMap(([key, value]) => ['-c', `${key}=${tomlValue(value)}`])];
     // Do not inherit HA tokens, TypeSafe/Anthropic keys, or desktop Codex config.
     const env = { PATH: process.env.PATH, CODEX_HOME: this.directory, TMPDIR: process.env.TMPDIR || '/tmp', LANG: 'C.UTF-8' };
     const child = this.spawnProcess(this.binary, args, { cwd: this.workspace, env, stdio: ['pipe', 'pipe', 'pipe'] }); this.child = child;
@@ -83,7 +91,7 @@ export class CodexProvider extends EventEmitter {
     await this.start();
     const { thread } = await this.rpc('thread/start', {
       model, modelProvider: 'openai', ephemeral: true, cwd: this.workspace,
-      approvalPolicy: 'never', sandbox: 'read-only', environments: [], dynamicTools: [],
+      approvalPolicy: 'never', permissions: 'home-chat-text', environments: [], dynamicTools: [],
       config: CODEX_CONFIG, personality: 'none',
       baseInstructions: 'You are the text-only language helper for Home chat. Follow the developer instructions. Do not execute tools, read files, browse, or perform device actions. All actions require a separate application review. Return only the requested answer.',
       developerInstructions: system,
@@ -111,7 +119,7 @@ export class CodexProvider extends EventEmitter {
         this.rpc('turn/start', {
           threadId: thread.id, input: [{ type: 'text', text: command, text_elements: [] }], model, effort,
           approvalPolicy: 'never', environments: [],
-          sandboxPolicy: { type: 'readOnly', access: { type: 'restricted', includePlatformDefaults: false, readableRoots: [this.workspace] } },
+          permissions: 'home-chat-text',
         }).then(result => { turnId = result.turn.id; if (cancelled || signal?.aborted) interrupt(); }, error => finish(error));
         if (signal?.aborted) abort();
       });
