@@ -7,8 +7,8 @@
 This setup uses two containers with **host networking** on the same host: your existing HA container and a small Node.js bridge. It is not a Supervisor add-on. Back up HA’s configuration and secrets before editing them.
 
 1. **Copy the integration.** Copy `custom_components/typesafe_chat` from this repo into HA’s `config/custom_components/` directory. Keep other integrations unchanged.
-2. **Prepare the bridge.** On the HA server, create a `typesafe-chat` directory containing `compose.yaml` from this folder, an empty `data/` directory, and an `app/` directory with the repo’s root `.mjs` files and `package.json`. No install or build step is needed. Do not copy `.env`, personal HA files, or device snapshots.
-3. **Add secrets.** Copy `runtime.env.example` to `typesafe-chat/runtime.env`. Add your TypeSafe and Anthropic keys and a random bridge token (`openssl rand -hex 32`). Run `chmod 600 runtime.env`. Put the **same bridge token** in HA’s `secrets.yaml`:
+2. **Prepare the bridge.** On the HA server, create a `typesafe-chat` directory containing `compose.yaml`, `Dockerfile`, and `.dockerignore` from this folder, an empty `data/` directory, and an `app/` directory with the repo’s root `.mjs` files and `package.json`. Compose builds a small image with the pinned official Codex CLI; no host installation is needed. Do not copy `.env`, personal HA files, or device snapshots.
+3. **Add secrets.** Copy `runtime.env.example` to `typesafe-chat/runtime.env`. Add your TypeSafe key and a random bridge token (`openssl rand -hex 32`). Run `chmod 600 runtime.env`. Put the **same bridge token** in HA’s `secrets.yaml`:
 
    ```yaml
    typesafe_chat_bridge_token: YOUR_RANDOM_BRIDGE_TOKEN
@@ -22,9 +22,26 @@ This setup uses two containers with **host networking** on the same host: your e
      bridge_token: !secret typesafe_chat_bridge_token
    ```
 
-5. **Start and validate.** From `typesafe-chat/`, run `docker compose up -d`. Check HA’s configuration, restart HA, and refresh your browser. **Home chat** appears in the HA sidebar at `/home-chat`.
+5. **Start and validate.** From `typesafe-chat/`, run `docker compose up -d --build`. Check HA’s configuration, restart HA, and refresh your browser. **Home chat** appears in the HA sidebar at `/home-chat`.
 
 The bridge listens only on `127.0.0.1:5189`. Do not publish that port or add an iframe URL. The panel and its API travel through HA’s existing authenticated origin, including your existing HTTPS remote-access proxy. If your containers use another network arrangement, use a private shared container network and adapt the two internal URLs; do not expose the bridge to the internet.
+
+## Connect ChatGPT once
+
+Open **Home chat → chat history → gear (AI settings) → Connect ChatGPT** as an HA administrator. Open the sign-in link and enter the code; the panel updates when sign-in completes. If needed, enable device-code sign-in in ChatGPT’s security settings. This works from local and remote HA because it does not use a localhost browser callback.
+
+- **One login for the home.** Every HA account uses this server-side subscription connection. Chats and HA device permissions remain per user. Only HA admins can connect, disconnect, or change the shared model.
+- **Fast by default.** `Auto` prefers an available fast model (Spark, then Luna, then a mini/nano model) with its lightest supported reasoning. The picker uses Codex’s live model catalog. This is a speed-oriented preset, not a latency guarantee. Choose a specific model to pin it; an unavailable selection shows an error.
+- **No OpenAI or Anthropic API key.** Replies, follow-ups, and compound-command splitting use your ChatGPT subscription allowance through [Codex App Server](https://learn.chatgpt.com/docs/app-server). If login expires or limits are reached, reconnect or wait; there is no automatic paid API fallback. The separate TypeSafe/Jev key is still required for device matching.
+
+| Setting | Stored on the HA host |
+| --- | --- |
+| TypeSafe key and bridge secret | `typesafe-chat/runtime.env` (mode `600`) |
+| ChatGPT login and refresh tokens | `typesafe-chat/data/chatgpt/auth.json`, inside a private directory |
+| Shared model selection | `typesafe-chat/data/llm-settings.json` (mode `600`) |
+| HA’s copy of the bridge secret | `config/secrets.yaml` |
+
+Codex manages token refresh. Credentials survive container restarts and never go to HA users’ browsers, voice devices, or chat/tool history. Do not commit or publish `data/` or `runtime.env`; backups contain credentials too. The helper runs over private stdio with an isolated configuration, ephemeral requests, disabled execution environments/shell/apps, and restricted file access. Only text reaches the application; HA actions still pass through Jev and the existing review.
 
 ## Use the chat
 
@@ -51,17 +68,18 @@ Actual microphones, STT/TTS, and an HA Assist adapter are future integrations; n
 
 HA filters inventory by the signed-in user’s read permissions. Device calls use that user’s current HA token and must pass control permissions plus the app’s service allowlist. The bridge has no administrator-token fallback. HA tokens are held only during each request; model keys and bridge credentials stay server-side.
 
-TypeSafe receives request text, the account’s display name, selected location, and eligible device metadata/states. Anthropic receives recent conversation context and proposed actions for follow-ups, plus requests for splitting or general answers. Provider charges may apply.
+TypeSafe receives request text, the account’s display name, selected location, and eligible device metadata/states. ChatGPT receives recent conversation context and proposed actions for follow-ups, plus requests for splitting or general answers. ChatGPT subscription limits and TypeSafe charges apply. The local demo still supports Anthropic when explicitly configured.
 
 Chats are stored as private JSON files in `data/`, separated by hashed HA user ID. Sanitized tool payloads live separately in `data/tool-details/` and can only be retrieved through their owning account and conversation. Credentials are removed; state responses are permission/attribute filtered. Inspecting a saved payload never re-executes a request. Back up this directory if you want to keep history. Do not commit it or serve it as a static directory. The HA host administrator can access these files.
 
 ## Update or recover
 
-Back up `data/`, the component, and the configuration first. Replace bridge source and restart it with `docker compose restart`; replace panel assets and refresh HA. Python integration changes require HA configuration validation and a restart. Expired previews must be requested again.
+Back up `data/`, the component, and the configuration first. Replace bridge source and restart it with `docker compose restart`; replace panel assets and refresh HA. After a Dockerfile or Compose change, use `docker compose up -d --build` to recreate the bridge. After changing `runtime.env`, use `docker compose up -d --force-recreate`; a plain restart does not reload container environment variables. Python integration changes require HA configuration validation and a restart. Expired previews must be requested again.
 
 | Problem | Fix |
 | --- | --- |
 | Home chat missing | Check HA logs for `typesafe_chat`, validate YAML, restart HA, refresh the browser. |
+| ChatGPT disconnected or limit reached | Open **AI settings**, reconnect if needed, or wait for the subscription limit to reset. Device-card previews remain available. |
 | Chat unavailable | Check `docker compose ps` / `docker compose logs`; confirm both copies of the bridge token and private network URLs match. |
 | Lost connection while applying | Reopen the chat to recover the saved result. Check actual device states before making a new request; actions are never automatically replayed. |
 | Remote page fails | Verify ordinary HA works at that remote address first. Keep panel/API paths relative to that same origin. No laptop or port 5189 access is needed. |

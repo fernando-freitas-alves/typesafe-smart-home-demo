@@ -128,3 +128,11 @@ Common v1 error codes: `invalid_request`, `unsupported_version`, `thread_require
 The next adapter maps **recognized speech → `send`**, **`reply.speech` → TTS**, and **`continueConversation` → keep listening**. It must retain a conversation per device/session, carry the pending confirmation ID, resolve spoken location choices against returned options, and archive finished sessions as appropriate. It should use HA’s current Assist exposure rules in addition to this API’s permissions when integrating Assist.
 
 [HA Assist pipelines](https://developers.home-assistant.io/docs/voice/pipelines/) handle speech recognition and synthesis; [HA’s Conversation API](https://developers.home-assistant.io/docs/intent_conversation_api/) has conversation IDs and continuation flags. A native HA conversation-entity/Assist adapter is **not installed by this change**. Audio streaming, wake words, TTS, microphone provisioning, and speaker recognition are outside this text API. The shared conversation and device-action backend is ready for that adapter.
+
+## Shared language-model settings
+
+Web and future voice requests use the same server-side ChatGPT connection and selected model. Devices never receive its token. HA administrators manage it through **Home chat → AI settings**.
+
+`POST /api/typesafe_chat/llm` accepts `{ "apiVersion": 1, "op": "status" }` using the caller’s normal HA bearer token. It returns connection state, shared model selection, resolved model, reasoning effort, and `canManage`. Only admins receive account details, available model options, or pending device-code login data.
+
+Admin operations on that endpoint: `connect`, `cancel`, `disconnect`, and `model` with `model: "auto"` or a catalog ID. Unsupported fields and non-admin mutations are rejected. It is an application settings API, not an arbitrary Codex RPC proxy. The conversation API and approval rules are unchanged. Subscription failures never trigger a paid API fallback.

@@ -181,6 +181,91 @@
           }
         }
       }
+    },
+    "/api/typesafe_chat/llm": {
+      "post": {
+        "operationId": "homeChatAiSettings",
+        "summary": "Inspect or manage the shared ChatGPT connection",
+        "description": "Any authenticated HA account may read status. Only HA admins may connect, cancel sign-in, disconnect, or change the global model. OAuth tokens are never returned. No arbitrary Codex RPC forwarding.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "apiVersion",
+                      "op"
+                    ],
+                    "properties": {
+                      "apiVersion": {
+                        "const": 1
+                      },
+                      "op": {
+                        "enum": [
+                          "status",
+                          "connect",
+                          "cancel",
+                          "disconnect"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "apiVersion",
+                      "op",
+                      "model"
+                    ],
+                    "properties": {
+                      "apiVersion": {
+                        "const": 1
+                      },
+                      "op": {
+                        "const": "model"
+                      },
+                      "model": {
+                        "type": "string",
+                        "maxLength": 150,
+                        "description": "auto or an ID from the authenticated model catalog"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Shared AI connection and model; admins also receive available models and pending sign-in display data.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid operation or unavailable model"
+          },
+          "401": {
+            "description": "HA authentication required"
+          },
+          "403": {
+            "description": "HA administrator required"
+          },
+          "503": {
+            "description": "Settings service unavailable"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1042,6 +1127,103 @@
           "threadId"
         ],
         "additionalProperties": false
+      },
+      "AiSettings": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "provider",
+          "connected",
+          "canManage",
+          "shared",
+          "model",
+          "resolvedModel",
+          "modelName",
+          "effort",
+          "modelUnavailable"
+        ],
+        "properties": {
+          "apiVersion": {
+            "const": 1
+          },
+          "provider": {
+            "const": "chatgpt"
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "canManage": {
+            "type": "boolean"
+          },
+          "shared": {
+            "const": true
+          },
+          "model": {
+            "type": "string"
+          },
+          "resolvedModel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "modelName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effort": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "modelUnavailable": {
+            "type": "boolean"
+          },
+          "account": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Admin-only account email and plan; no tokens"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "login": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Admin-only verificationUrl, userCode and expiresAt; never access/refresh tokens"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
       }
     }
   }
