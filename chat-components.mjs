@@ -13,7 +13,7 @@ export function deviceComponent(device, { controls = true, observed } = {}) {
   const fields = [];
   for (const action of choices) {
     if (names[action]) {
-      if ((action === 'turn_on' && liveActive(device)) || (action === 'turn_off' && device.state === 'off') || (action === 'media_play' && device.state === 'playing') || (action === 'media_pause' && device.state !== 'playing')) continue;
+      if ((action === 'turn_on' && liveActive(device)) || (action === 'turn_off' && device.state === 'off') || (action === 'media_play' && device.state === 'playing') || (action === 'media_pause' && !['playing', 'unknown'].includes(device.state))) continue;
       fields.push({ action, type: 'button', label: names[action] });
     } else if (action === 'brightness') {
       fields.push({ action, type: 'range', label: 'Brightness', unit: '%', min: 0, max: 100, step: 1, value: device.state === 'off' ? 0 : finite(a.brightness) ? Math.round(a.brightness / 255 * 100) : 100 });
@@ -44,7 +44,7 @@ export function deviceComponent(device, { controls = true, observed } = {}) {
   if (device.available && device.kind === 'speaker' && finite(a.volume_level)) metrics.push({ label: 'Volume', value: Math.round(a.volume_level * 100), unit: '%' });
   return { type: device.kind, entityId: device.entity_id, name: device.name, room: device.roomName, value, unit, stateLabel: liveLabel(device), active: liveActive(device), available: device.available,
     icon: device.icon || null, deviceClass: a.device_class, metrics, ...(finite(progress) ? { progress: Math.max(0, Math.min(100, progress)) } : {}),
-    note: !device.available ? 'Unavailable when this snapshot was taken.' : device.readOnly ? device.readOnlyReason : '',
+    note: !device.available ? 'Unavailable when this snapshot was taken.' : device.readOnly ? device.readOnlyReason : device.state === 'unknown' ? 'Current state is unknown. You can still request a specific action.' : '',
     ...(observed !== undefined ? { observed } : {}), controls: fields };
 }
 

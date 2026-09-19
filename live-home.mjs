@@ -60,7 +60,8 @@ export function buildLiveInventory(raw, { haSwitchEntities = [] } = {}) {
     const attrs = Object.fromEntries(attributes.filter(key => state.attributes[key] !== undefined).map(key => [key, state.attributes[key]]));
     const denied = raw.controlEntities && !raw.controlEntities.includes(state.entity_id);
     const readOnly = denied || kind === 'sensor' || kind === 'lock' || (domain === 'switch' && !haSwitchEntities.includes(state.entity_id));
-    const available = !['unknown', 'unavailable'].includes(state.state);
+    // HA 'unknown' means no state reading; only 'unavailable' disables commands.
+    const available = state.state !== 'unavailable';
     devices.push({ entity_id: state.entity_id, id: state.entity_id.replace('.', '__'), domain, kind, name, room: space.id,
       roomName: space.name, areaId, areaName, space: space.space, ...(roomHint ? { roomHint } : {}), aliases, icon, labels, state: state.state, attributes: attrs,
       temperatureUnit: raw.temperatureUnit, available, readOnly,
@@ -88,7 +89,8 @@ export function liveActive(device) {
   return device.available && ['on', 'playing', 'heat', 'cool', 'auto', 'heat_cool', 'dry', 'fan_only', 'open', 'opening', 'locked'].includes(device.state);
 }
 export function liveLabel(d) {
-  if (!d.available) return d.state === 'unknown' ? 'Unknown state' : 'Unavailable';
+  if (!d.available) return 'Unavailable';
+  if (d.state === 'unknown') return 'Unknown state';
   if (d.kind === 'sensor') return `${d.state}${d.attributes.unit_of_measurement ? ' ' + d.attributes.unit_of_measurement : ''}`;
   if (d.kind === 'thermostat') return `${d.state.replaceAll('_', ' ')}${Number.isFinite(d.attributes.temperature) ? ' · ' + d.attributes.temperature + d.temperatureUnit : ''}${Number.isFinite(d.attributes.current_temperature) ? ' · now ' + d.attributes.current_temperature + d.temperatureUnit : ''}`;
   if (d.kind === 'cover') return `${d.state}${Number.isFinite(d.attributes.current_position) ? ' · ' + d.attributes.current_position + '% open' : ''}`;

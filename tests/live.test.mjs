@@ -433,10 +433,38 @@ test('unassigned is a usable selected location and unique devices need no select
 
 test('unavailable unassigned devices are matched and reported, not mistaken for a missing location', () => {
   const raw = unassignedFixture();
-  for (const id of ['cover.shade_1', 'cover.shade_2']) raw.states.find(state => state.entity_id === id).state = 'unknown';
+  for (const id of ['cover.shade_1', 'cover.shade_2']) raw.states.find(state => state.entity_id === id).state = 'unavailable';
   const devices = buildLiveInventory(raw).devices;
   const request = stage(devices, { scope: 'area', room: 'terrace', device_type: 'cover', cover_action: 'close_cover' });
-  assert.throws(() => planLiveDecision(request, devices), error => error.code === 'devices_unavailable' && /terrace_window_shades_1 \(unknown\)/.test(error.message));
+  assert.throws(() => planLiveDecision(request, devices), error => error.code === 'devices_unavailable' && /terrace_window_shades_1 \(unavailable\)/.test(error.message));
   const query = stage(devices, { intent: 'smarthome_query', scope: 'area', room: 'terrace', device_type: 'cover' });
   assert.equal(planLiveDecision(query, devices).targets.length, 2);
+});
+
+test('unknown state permits explicit controls and preserves capability and permission checks', () => {
+  const raw = fixture();
+  for (const state of raw.states) state.state = 'unknown';
+  const inventory = buildLiveInventory(raw, { haSwitchEntities: ['switch.desk'] });
+  assert.equal(inventory.counts.unavailable, 0);
+  for (const call of [manual(), manual('light.study', 'turn_off'), manual('light.study', 'turn_on', { brightness_pct: 35 }), manual('switch.desk'), manual('cover.study', 'open_cover'), manual('cover.study', 'close_cover'), manual('cover.study', 'stop_cover'), manual('cover.study', 'set_cover_position', { position: 60 }), manual('climate.study', 'set_temperature', { temperature: 24 }), manual('climate.study', 'set_hvac_mode', { hvac_mode: 'cool' })]) {
+    assert.doesNotThrow(() => validateLiveService(call, inventory.devices));
+  }
+  for (const call of [manual('light.study', 'toggle'), manual('lock.door', 'unlock'), manual('cover.study', 'set_cover_position', { position: 101 })]) assert.throws(() => validateLiveService(call, inventory.devices));
+  const relative = stage(inventory.devices, { light_action: 'dim' }, 'Dim the study light');
+  assert.throws(() => planLiveDecision(relative, inventory.devices), /Specify a brightness percentage/);
+  const exact = stage(inventory.devices, { light_action: 'dim' }, 'Set the study light to 40%');
+  assert.equal(planLiveDecision(exact, inventory.devices).services[0].data.brightness_pct, 40);
+});
+
+test('unknown-state commands are sent once and remain unconfirmed until the device reports a result', async () => {
+  const raw = fixture();
+  const cover = raw.states.find(s => s.entity_id === 'cover.study'); cover.state = 'unknown'; delete cover.attributes.current_position;
+  const client = fakeClient(raw);
+  const home = create(client);
+  const preview = await home.preview({ command: 'Close the study shade', manual: manual('cover.study', 'close_cover') });
+  assert.equal(preview.actions[0].before, 'Unknown state');
+  const result = await home.apply(preview.planId);
+  assert.equal(client.writes.length, 1); assert.equal(result.calls[0].observed, false);
+  assert.equal(result.calls[0].after, 'Unknown state');
+  await assert.rejects(home.apply(preview.planId)); assert.equal(client.writes.length, 1);
 });

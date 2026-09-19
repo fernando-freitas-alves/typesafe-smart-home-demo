@@ -99,3 +99,12 @@ test('a real query produces only matched cards; card interaction previews, appro
   const other = await service.handle({ op: 'new' });
   await assert.rejects(service.handle({ op: 'send', threadId: other.thread.id, componentAction: action }), /does not belong/);
 });
+
+test('unknown-state cards offer explicit controls while keeping the missing reading visible', () => {
+  const cover = deviceComponent(light({ entity_id: 'cover.shade', domain: 'cover', kind: 'cover', state: 'unknown', attributes: { supported_features: 15 } }));
+  assert.equal(cover.available, true); assert.equal(cover.stateLabel, 'Unknown state');
+  assert.match(cover.note, /Current state is unknown/); assert.equal(cover.progress, undefined);
+  assert.deepEqual(cover.controls.map(control => control.action), ['open_cover', 'close_cover', 'stop_cover', 'set_cover_position']);
+  const media = deviceComponent(light({ entity_id: 'media_player.speaker', domain: 'media_player', kind: 'speaker', state: 'unknown', attributes: {} }));
+  assert.ok(media.controls.some(control => control.action === 'media_pause'));
+});

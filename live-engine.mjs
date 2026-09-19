@@ -77,7 +77,7 @@ export function planLiveDecision(stage, devices, user = {}) {
   const action = a[actionKey].choice;
   const skipped = scope === 'specific_device' ? [] : targets.filter(d => !d.available);
   if (skipped.length) targets = targets.filter(d => d.available);
-  if (!targets.length) throw homeRequestError('devices_unavailable', `All matching devices are unavailable or unknown: ${skipped.map(d => `${d.name} (${d.state})`).join(', ')}. No actions were sent.`);
+  if (!targets.length) throw homeRequestError('devices_unavailable', `All matching devices are unavailable: ${skipped.map(d => `${d.name} (${d.state})`).join(', ')}. No actions were sent.`);
   // Do not actuate a group and all of its members twice in a broad request.
   const ids = new Set(targets.map(d => d.entity_id));
   targets = targets.filter(d => !Array.isArray(d.attributes.entity_id) || !d.attributes.entity_id.length || !d.attributes.entity_id.every(id => ids.has(id)));
@@ -93,7 +93,7 @@ export function planLiveDecision(stage, devices, user = {}) {
     if (kind === 'light' && action === 'dim') {
       service = 'turn_on'; data.brightness_pct = numberIn(stage.command, true);
       if (data.brightness_pct === null) {
-        if (!Number.isFinite(device.attributes.brightness)) throw new Error(`Specify a brightness percentage for ${device.name}.`);
+        if (device.state === 'unknown' || !Number.isFinite(device.attributes.brightness)) throw new Error(`Specify a brightness percentage for ${device.name}.`);
         data.brightness_pct = Math.max(1, Math.round(device.attributes.brightness / 255 * 50));
       }
     }
@@ -149,7 +149,7 @@ export class LiveHome {
     const services = plans.flatMap(p => p.services); const queried = plans.filter(p => p.intent === 'smarthome_query').flatMap(p => p.targets);
     if (services.length > 100) throw new Error('This request has more than 100 actions. Split it into smaller requests.');
     const skipped = plans.flatMap(p => p.skipped || []);
-    if (skipped.length) stages.push({ kind: 'result', provider: 'Home Assistant', text: `Skipped unavailable or unknown devices: ${skipped.map(d => `${d.name} (${d.roomName})`).join(', ')}.` });
+    if (skipped.length) stages.push({ kind: 'result', provider: 'Home Assistant', text: `Skipped unavailable devices: ${skipped.map(d => `${d.name} (${d.roomName})`).join(', ')}.` });
     if (queried.length) stages.push({ kind: 'result', provider: 'Home Assistant', text: queried.map(d => `${d.name} (${d.roomName}): ${liveLabel(d)}.`).join('\n') });
     const result = { ...snapshot, inventoryDurationMs, command, user, context, stages, calls: [], changed: [], durationMs: Math.round(performance.now() - started), live: true,
       queried: [...new Map(queried.map(device => [device.entity_id, device])).values()],

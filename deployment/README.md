@@ -74,7 +74,7 @@ Codex manages token refresh. Credentials survive container restarts and never go
 
 **Use your own device vocabulary.** Both the follow-up interpreter and Jev receive HA names, aliases, entity/device labels, icons, and the selected location. Icons provide fixture hints; ambiguous matches still need clarification. For reliable alternate names, add an [entity alias](https://www.home-assistant.io/voice_control/aliases/) such as “spotlights” without renaming the entity. Device labels describe shared hardware and may apply to multiple fixtures. Cards and review forms use the HA entity icon, including custom packs such as `hue:`; older cards use current HA icons when available, with a type-based fallback.
 
-**Devices without a room still work.** Name a device directly or choose **Unassigned** to target that bucket. For room groups such as “terrace shades”, an unassigned device can match an unambiguous room name in its name or aliases. This is a chat hint; HA assignments stay unchanged, assigned rooms take precedence, and bathrooms/closets remain separate. Unknown or unavailable devices are reported rather than controlled.
+**Devices without a room still work.** Name a device directly or choose **Unassigned** to target that bucket. For room groups such as “terrace shades”, an unassigned device can match an unambiguous room name in its name or aliases. This is a chat hint; HA assignments stay unchanged, assigned rooms take precedence, and bathrooms/closets remain separate. An **unknown** current state still permits explicit commands (on/off, open/close/stop, or a target percentage/temperature). Relative changes need a usable reading. **Unavailable** devices remain blocked. A sent command is only shown as confirmed when HA reports the requested result.
 
 Bathrooms and closets remain app-only spaces inside the original HA area. Name or alias their devices with `bathroom`, `washroom`, `banheiro`, `lavabo`, `closet`, or `dressing room`. HA rooms and presence automations do not need to change.
 
@@ -93,6 +93,10 @@ HA filters inventory by the signed-in user’s read permissions. Device calls us
 TypeSafe receives request text, the account’s display name, selected location, and eligible device metadata/states. ChatGPT receives recent conversation, proposed actions, identity/location, and permitted device names, aliases, icons, and entity/device labels for follow-ups, plus requests for splitting or general answers. ChatGPT subscription limits and TypeSafe charges apply. The local demo still supports Anthropic when explicitly configured.
 
 Chats are stored as private JSON files in `data/`, separated by hashed HA user ID. Sanitized tool payloads live separately in `data/tool-details/` and can only be retrieved through their owning account and conversation. Credentials are removed; state responses are permission/attribute filtered. Inspecting a saved payload never re-executes a request. Back up this directory if you want to keep history. Do not commit it or serve it as a static directory. The HA host administrator can access these files.
+
+## Other HA pages
+
+[Make Zigbee2MQTT work through local and remote HA using the same login →](zigbee2mqtt-remote.md)
 
 ## Update or recover
 
