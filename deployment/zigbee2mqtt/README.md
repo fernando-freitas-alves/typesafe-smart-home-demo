@@ -43,7 +43,8 @@ These motors do not have verified on-demand position reads, so no misleading `/g
 - Live logs from this manufacturer variant contain actual DP8 reports (including 0, 64, and 100) and separate DP9 target acknowledgements.
 - Shade 1 physically opened with DP1 enum 0, reported target DP9=0, and reached DP8=0. This establishes the position polarity for this installation.
 - **Verified on shade 2 (2026-09-19):** after the sequence fix, an observed 15-second Open → 7-second Close → Stop test rose, reversed, and stopped partway. DP1 acknowledged all three commands; DP8=87 then reached HA as **13% open**. The initial Stop failure was on shade 1 with the generic constant-sequence writer.
-- **Still unverified:** automatic percentage targets and the same full physical test on shades 1, 3, 4, and 5. The converter is installed for all five; tests on one motor do not certify the others.
+- **Percentage control verified on shade 2:** 13% → 30% → 13% stopped automatically at both targets, confirmed by the observer. Target DP9 values 70/87 left the previous actual position unchanged; later measured DP8 values 70/87 updated HA to 30%/13%. No separate Stop was sent during this test.
+- **Still unverified:** the same full physical test on shades 1, 3, 4, and 5. The converter is installed for all five; tests on one motor do not certify the others.
 - The automated checks validate command bytes against the installed converter library, decode those report values, check inversion and invalid data, and verify that sending a command does not optimistically change actual state. They do not substitute for physical testing.
 - If the motor moves but HA stays unknown, inspect DP8 packets, the converted MQTT payload, and HA's MQTT cover position subscription in that order.
 - If direction is wrong, stop the motor and check `invert_cover` against physical observation. Do not experiment with calibration or limit settings.
